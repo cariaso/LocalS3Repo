@@ -633,7 +633,7 @@ class LocalS3File extends File {
 
 			$thumb = $this->handler->doTransform( $this, $this->thumbTempPath, $thumbUrl, $params );
 
-			wfDebug( __METHOD__. " thumb: ".print_r($thumb->url,true)."\n" );
+			#wfDebug( __METHOD__. " thumb: ".print_r($thumb->url,true)."\n" );
 			$s3path = $thumbPath;
 
 			$info = $s3->putObjectFile($this->thumbTempPath, $this->repo->AWS_S3_BUCKET, $s3path, 
