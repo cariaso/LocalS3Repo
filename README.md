@@ -1,4 +1,9 @@
 /*
+	Modified to work with MediaWiki 1.23 and CloudFront.
+	Mike Cariaso - cariaso at snpedia dot com
+
+*/
+/*
 	Modified to work with 1.21 and CloudFront.
 	Owen Borseth - owen at borseth dot us
 
@@ -12,6 +17,8 @@
 
 // $wgUploadDirectory is the directory in your bucket where the image directories and images will be stored.
 // If "images" doesn't work for you, change it.
+
+
 $wgUploadDirectory = 'images';
 $wgUploadS3Bucket = 'YOUR S3 BUCKET';
 $wgUploadS3SSL = false; // true if SSL should be used
