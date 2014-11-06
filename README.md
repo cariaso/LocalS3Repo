@@ -1,14 +1,17 @@
-/*
-	Modified to work with MediaWiki 1.23 and CloudFront.
-	Mike Cariaso - cariaso at snpedia dot com
+LocalS3Repo modified to work with MediaWiki 1.23 and CloudFront CDN. 
 
-*/
-/*
-	Modified to work with 1.21 and CloudFront.
-	Owen Borseth - owen at borseth dot us
 
-	LocalS3Repo modified to work with MediaWiki 1.21, maybe others, and CloudFront CDN. A maintenance script that I used to move my current
-	files over to S3 has been included; it will probably need to be slightly modified to work for you.
+Mike Cariaso - cariaso at snpedia dot com
+
+Based on
+* https://github.com/oborseth/LocalS3Repo2
+* https://www.mediawiki.org/wiki/Extension:LocalS3Repo
+	
+	
+
+/*	
+	A maintenance script that was used to move current images between s3 buckets is included; 
+	   it will probably need to be slightly modified to work for you.
 */
 
 // s3 filesystem repo settings - start
