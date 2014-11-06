@@ -18,7 +18,7 @@
 // $wgUploadDirectory is the directory in your bucket where the image directories and images will be stored.
 // If "images" doesn't work for you, change it.
 
-
+```
 $wgUploadDirectory = 'images';
 $wgUploadS3Bucket = 'YOUR S3 BUCKET';
 $wgUploadS3SSL = false; // true if SSL should be used
@@ -47,4 +47,4 @@ $wgLocalFileRepo = array(
         'cloudFrontUrl' => $wgCloudFrontUrl,
 );
 require_once("$IP/extensions/LocalS3Repo/LocalS3Repo.php");
-// s3 filesystem repo settings - end
+```
