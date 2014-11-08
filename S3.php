@@ -1,6 +1,14 @@
 <?php
+/*
+  	Modified to work with 1.23 and IAM roles.
+        cariaso - cariaso@snpedia.com
+
+  	Modified to work with 1.21 and CloudFront.
+        Owen Borseth - owen at borseth dot us
+*/
+
 /**
-* $Id$
+* $Id: S3.php 47 2009-07-20 01:25:40Z don.schonknecht $
 *
 * Copyright (c) 2013, Donovan Schönknecht.  All rights reserved.
 *
@@ -349,6 +357,7 @@ class S3
 	*/
 	private static function __triggerError($message, $file, $line, $code = 0)
 	{
+	  wfDebug(print_r(wfDebugBacktrace(),true));
 		if (self::$useExceptions)
 			throw new S3Exception($message, $file, $line, $code);
 		else
@@ -614,6 +623,11 @@ class S3
 	*/
 	public static function putObject($input, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array(), $storageClass = self::STORAGE_CLASS_STANDARD, $serverSideEncryption = self::SSE_NONE)
 	{
+   	        wfDebug(__METHOD__.": before $uri\n");
+
+		$uri = urldecode($uri);
+		wfDebug(__METHOD__.": after $uri\n");
+
 		if ($input === false) return false;
 		$rest = new S3Request('PUT', $bucket, $uri, self::$endpoint);
 
@@ -669,9 +683,18 @@ class S3
 			$rest->setHeader('Content-Type', $input['type']);
 			if (isset($input['md5sum'])) $rest->setHeader('Content-MD5', $input['md5sum']);
 
+
+			// This was hacked by cariaso
+			$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+			$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+			$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
+			// This was hacked by cariaso
+
 			$rest->setAmzHeader('x-amz-acl', $acl);
 			foreach ($metaHeaders as $h => $v) $rest->setAmzHeader('x-amz-meta-'.$h, $v);
+			wfDebug(__METHOD__.": all\n".print_r($rest, true)."\n\n");
 			$rest->getResponse();
+			wfDebug(__METHOD__.": after\n".print_r($rest, true)."\n\n");
 		} else
 			$rest->response->error = array('code' => 0, 'message' => 'Missing input parameters');
 
@@ -731,6 +754,7 @@ class S3
 	*/
 	public static function getObject($bucket, $uri, $saveTo = false)
 	{
+		$uri = urldecode($uri);
 		$rest = new S3Request('GET', $bucket, $uri, self::$endpoint);
 		if ($saveTo !== false)
 		{
@@ -746,9 +770,10 @@ class S3
 
 		if ($rest->response->error === false && $rest->response->code !== 200)
 			$rest->response->error = array('code' => $rest->response->code, 'message' => 'Unexpected HTTP status');
-		if ($rest->response->error !== false)
+
+		if ($rest->response->error !== false) 
 		{
-			self::__triggerError(sprintf("S3::getObject({$bucket}, {$uri}): [%s] %s",
+		        self::__triggerError(sprintf("S3::getObject({$bucket}, {$uri}): [%s] %s",
 			$rest->response->error['code'], $rest->response->error['message']), __FILE__, __LINE__);
 			return false;
 		}
@@ -767,6 +792,12 @@ class S3
 	public static function getObjectInfo($bucket, $uri, $returnInfo = true)
 	{
 		$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
+		// This was hacked by cariaso
+		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+		$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
+		// This was hacked by cariaso
+
 		$rest = $rest->getResponse();
 		if ($rest->error === false && ($rest->code !== 200 && $rest->code !== 404))
 			$rest->error = array('code' => $rest->code, 'message' => 'Unexpected HTTP status');
@@ -795,6 +826,8 @@ class S3
 	*/
 	public static function copyObject($srcBucket, $srcUri, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array(), $storageClass = self::STORAGE_CLASS_STANDARD)
 	{
+		$srcUri = urldecode($srcUri);
+		$uri = urldecode($uri);
 		$rest = new S3Request('PUT', $bucket, $uri, self::$endpoint);
 		$rest->setHeader('Content-Length', 0);
 		foreach ($requestHeaders as $h => $v) $rest->setHeader($h, $v);

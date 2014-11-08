@@ -85,7 +85,10 @@ class LocalS3File extends File {
 			if(! $this->repo->AWS_S3_PUBLIC) {
 				$path = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->getZonePath('public') . $path, 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
 			} else {
-				$path = $this->repo->url . $path;
+			  $path = $this->repo->getVirtualUrl($path);
+			  wfDebug( __METHOD__ . " return: $path \n".print_r($path,true)."\n" );
+				#$path = $this->repo->url . $path;
+#				$path = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->getZonePath('public') . $path, 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
 			}
 		}
 		wfDebug( __METHOD__ . " return: $path \n".print_r($this,true)."\n" );
