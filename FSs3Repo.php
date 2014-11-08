@@ -451,6 +451,7 @@ class FSs3Repo extends FileRepo {
 			// Archive destination file if it exists
 			$info = $s3->getObjectInfo($this->AWS_S3_BUCKET, $dstPath);
 			wfDebug(__METHOD__."(transfer) dstPath: $dstPath, info:".print_r($info,true)."\n");
+
 			if( $info ) {
 				// Check if the archive file exists
 				// This is a sanity check to avoid data loss. In UNIX, the rename primitive
@@ -498,25 +499,37 @@ class FSs3Repo extends FileRepo {
 			}
 
 			$good = true;
+			wfDebug(__METHOD__.": got here\n");
 			wfSuppressWarnings();
 			if(! is_file( $srcPath )) {			
-				// S3
-				if(! $s3->copyObject($this->AWS_S3_BUCKET, $srcPath, $this->AWS_S3_BUCKET, 
-				        $this->AWS_S3_FOLDER . $dstPath, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE))) {
-					wfDebug(__METHOD__.": FAILED - copy: $srcPath to $dstPath");
-				}
-				//$s3->putObjectFile($srcPath, $this->AWS_S3_BUCKET, $this->directory/*AWS_S3_FOLDER*/ . $dstPath, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE));
-				if ( $flags & self::DELETE_SOURCE ) {
-					if(! $s3->deleteObject($this->AWS_S3_BUCKET, /*$this->directory/*AWS_S3_FOLDER .*/ $srcPath)) {
-						wfDebug(__METHOD__.": FAILED - delete: $srcPath");
-					}
-				}
+			  // S3
+			  wfDebug(__METHOD__.": got here:1\n");
+			  if(! $s3->copyObject($this->AWS_S3_BUCKET, $srcPath, $this->AWS_S3_BUCKET, 
+					       $this->AWS_S3_FOLDER . $dstPath, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE))) {
+			    wfDebug(__METHOD__.": FAILED - copy: $srcPath to $dstPath");
+			  } else {
+			    wfDebug(__METHOD__.": got here:2\n");
+			    
+			  }
+			  //$s3->putObjectFile($srcPath, $this->AWS_S3_BUCKET, $this->directory/*AWS_S3_FOLDER*/ . $dstPath, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE));
+			  if ( $flags & self::DELETE_SOURCE ) {
+			    if(! $s3->deleteObject($this->AWS_S3_BUCKET, /*$this->directory/*AWS_S3_FOLDER .*/ $srcPath)) {
+			      wfDebug(__METHOD__.": FAILED - delete: $srcPath");
+			    }
+			  }
 			} else {
+			  wfDebug(__METHOD__.": got here:3:$srcPath\n");
+
 				// Local file
 				if(! $s3->putObjectFile($srcPath, $this->AWS_S3_BUCKET, $dstPath, 
 							($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE))) {
 					$status->error( 'filecopyerror', $srcPath, $dstPath );
 					$good = false;
+					wfDebug(__METHOD__.": got here:4:putObjectFile(".$this->AWS_S3_BUCKET . ", ". $dstPath.")\n");
+
+				} else {
+					wfDebug(__METHOD__.": got here:5\n");
+
 				}
 				if ( $flags & self::DELETE_SOURCE ) {
 					unlink($srcPath);
