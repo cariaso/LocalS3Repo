@@ -1,4 +1,4 @@
-LocalS3Repo modified to work with MediaWiki 1.23 and CloudFront CDN. 
+LocalS3Repo modified to work with MediaWiki 1.23, CloudFront CDN, and rotating IAM keys
 
 
 Mike Cariaso - cariaso at snpedia dot com
