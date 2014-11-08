@@ -655,21 +655,30 @@ class S3
 		}
 
 		// Custom request headers (Content-Type, Content-Disposition, Content-Encoding)
-		if (is_array($requestHeaders))
+		if (is_array($requestHeaders)) {
 			foreach ($requestHeaders as $h => $v) $rest->setHeader($h, $v);
-		elseif (is_string($requestHeaders)) // Support for legacy contentType parameter
+
+		} elseif (is_string($requestHeaders)) { // Support for legacy contentType parameter
 			$input['type'] = $requestHeaders;
+		}
 
 		// Content-Type
 		if (!isset($input['type']))
 		{
-			if (isset($requestHeaders['Content-Type']))
+
+		  if (isset($requestHeaders['Content-Type'])) {
 				$input['type'] =& $requestHeaders['Content-Type'];
-			elseif (isset($input['file']))
+
+		  } elseif (isset($input['file'])) {
 				$input['type'] = self::__getMIMEType($input['file']);
-			else
+
+		} else {
+#				$input['type'] = self::__getMIMEType($input['file']);
 				$input['type'] = 'application/octet-stream';
+			}
 		}
+
+
 
 		if ($storageClass !== self::STORAGE_CLASS_STANDARD) // Storage class
 			$rest->setAmzHeader('x-amz-storage-class', $storageClass);
@@ -692,9 +701,7 @@ class S3
 
 			$rest->setAmzHeader('x-amz-acl', $acl);
 			foreach ($metaHeaders as $h => $v) $rest->setAmzHeader('x-amz-meta-'.$h, $v);
-			wfDebug(__METHOD__.": all\n".print_r($rest, true)."\n\n");
 			$rest->getResponse();
-			wfDebug(__METHOD__.": after\n".print_r($rest, true)."\n\n");
 		} else
 			$rest->response->error = array('code' => 0, 'message' => 'Missing input parameters');
 
@@ -1868,7 +1875,13 @@ class S3
 			if ($type !== false && strlen($type) > 0) return $type;
 		}
 
-		return 'application/octet-stream';
+
+		$cmd = "file -b --mime-type $file";
+		$escaped_command = escapeshellcmd($cmd);
+		exec($escaped_command, $out, $ret);
+		return $out[0];
+
+#		return 'application/octet-stream';
 	}
 
 
