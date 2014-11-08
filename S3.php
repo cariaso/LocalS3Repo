@@ -1,11 +1,6 @@
 <?php
-/*
-  	Modified to work with 1.21 and CloudFront.
-        Owen Borseth - owen at borseth dot us
-*/
-
 /**
-* $Id: S3.php 47 2009-07-20 01:25:40Z don.schonknecht $
+* $Id$
 *
 * Copyright (c) 2008, Donovan Schönknecht.  All rights reserved.
 *
@@ -304,8 +299,6 @@ class S3 {
 	* @return boolean
 	*/
 	public static function putObject($input, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array()) {
-
-		$uri = urldecode($uri);
 		if ($input === false) return false;
 		$rest = new S3Request('PUT', $bucket, $uri);
 
@@ -410,7 +403,6 @@ class S3 {
 	* @return mixed
 	*/
 	public static function getObject($bucket, $uri, $saveTo = false) {
-		$uri = urldecode($uri);
 		$rest = new S3Request('GET', $bucket, $uri);
 		if ($saveTo !== false) {
 			if (is_resource($saveTo))
@@ -426,7 +418,8 @@ class S3 {
 		if ($rest->response->error === false && $rest->response->code !== 200)
 			$rest->response->error = array('code' => $rest->response->code, 'message' => 'Unexpected HTTP status');
 		if ($rest->response->error !== false) {
-			trigger_error(sprintf("S3::getObject({".$bucket."}, {".$uri."}): [%s] %s", $rest->response->error['code'], $rest->response->error['message']), E_USER_WARNING);
+			trigger_error(sprintf("S3::getObject({$bucket}, {$uri}): [%s] %s",
+			$rest->response->error['code'], $rest->response->error['message']), E_USER_WARNING);
 			return false;
 		}
 		return $rest->response;
@@ -468,8 +461,6 @@ class S3 {
 	* @return mixed | false
 	*/
 	public static function copyObject($srcBucket, $srcUri, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array()) {
-		$srcUri = urldecode($srcUri);
-		$uri = urldecode($uri);
 		$rest = new S3Request('PUT', $bucket, $uri);
 		$rest->setHeader('Content-Length', 0);
 		foreach ($requestHeaders as $h => $v) $rest->setHeader($h, $v);
@@ -1227,7 +1218,7 @@ final class S3Request {
 		curl_setopt($curl, CURLOPT_USERAGENT, 'S3/php');
 
 		if (S3::$useSSL) {
-			curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 2);
+			curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 1);
 			curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 1);
 		}
 
