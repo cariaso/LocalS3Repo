@@ -1196,10 +1196,12 @@ class S3
 	{
 		$expires = self::__getTime() + $lifetime;
 		$uri = str_replace(array('%2F', '%2B'), array('/', '+'), rawurlencode($uri));
-		return sprintf(($https ? 'https' : 'http').'://%s/%s?AWSAccessKeyId=%s&Expires=%u&Signature=%s',
+		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+		$token=rawurlencode($auth['Token']);
+		return sprintf(($https ? 'https' : 'http').'://%s/%s?AWSAccessKeyId=%s&Expires=%u&x-amz-security-token=%s&Signature=%s',
 		// $hostBucket ? $bucket : $bucket.'.s3.amazonaws.com', $uri, self::$__accessKey, $expires,
-		$hostBucket ? $bucket : self::$endpoint.'/'.$bucket, $uri, self::$__accessKey, $expires,
-		urlencode(self::__getHash("GET\n\n\n{$expires}\n/{$bucket}/{$uri}")));
+		$hostBucket ? $bucket : self::$endpoint.'/'.$bucket, $uri, self::$__accessKey, $expires, $token, urlencode(self::__getHash("GET\n\n\n{$expires}\nx-amz-security-token:{$auth['Token']}\n/{$bucket}/{$uri}")));;
 	}
 
 
