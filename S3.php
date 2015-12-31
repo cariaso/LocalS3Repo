@@ -355,9 +355,9 @@ class S3
 	* @param integer $code Error code
 	* @return void
 	*/
-	private static function __triggerError($message, $file, $line, $code = 0)
+	private static function __triggerError($message, $file, $line, $code = 0, $depthLimit = 0)
 	{
-	  wfDebug(print_r(wfDebugBacktrace(),true));
+	        wfDebug(print_r(wfDebugBacktrace($depthLimit),true));
 		if (self::$useExceptions)
 			throw new S3Exception($message, $file, $line, $code);
 		else
@@ -800,6 +800,9 @@ class S3
 	{
 		$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
 		// This was hacked by cariaso
+		// when doing a runJobs.php, this is called
+		// repeatedly. It would be nicer to cache this for a
+		// while, and re-request whenthe code below triggers a 403
 		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
 		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
 		$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
@@ -810,8 +813,9 @@ class S3
 			$rest->error = array('code' => $rest->code, 'message' => 'Unexpected HTTP status');
 		if ($rest->error !== false)
 		{
+                        $depthLimit = 2;
 			self::__triggerError(sprintf("S3::getObjectInfo({$bucket}, {$uri}): [%s] %s",
-			$rest->error['code'], $rest->error['message']), __FILE__, __LINE__);
+			$rest->error['code'], $rest->error['message']), __FILE__, __LINE__, $rest->code, $depthLimit);
 			return false;
 		}
 		return $rest->code == 200 ? $returnInfo ? $rest->headers : true : false;
