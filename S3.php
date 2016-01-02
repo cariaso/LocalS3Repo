@@ -73,6 +73,15 @@ class S3
 	 * @static
 	 */
 	private static $__secretKey = null;
+
+	/**
+	 * AWS Token
+	 *
+	 * @var string
+	 * @access private
+	 * @static
+	 */
+	private static $__token = null;
 	
 	/**
 	 * SSL Client key
@@ -192,8 +201,11 @@ class S3
 	*/
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = false, $endpoint = 's3.amazonaws.com')
 	{
-		if ($accessKey !== null && $secretKey !== null)
+		if ($accessKey !== null && $secretKey !== null) {
 			self::setAuth($accessKey, $secretKey);
+                } else {
+		        self::setAuthToken();
+                }
 		self::$useSSL = $useSSL;
 		self::$endpoint = $endpoint;
 	}
@@ -221,6 +233,19 @@ class S3
 	{
 		self::$__accessKey = $accessKey;
 		self::$__secretKey = $secretKey;
+	}
+
+	/**
+	* Set AWS access key, secret key and token
+	*
+	* @return void
+	*/
+	public static function setAuthToken()
+	{
+		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+		self::setAuth($auth['AccessKeyId'],$auth['SecretAccessKey']);
+		self::$__token = $auth['Token'];
 	}
 
 
@@ -355,8 +380,9 @@ class S3
 	* @param integer $code Error code
 	* @return void
 	*/
-	private static function __triggerError($message, $file, $line, $code = 0, $depthLimit = 0)
+	private static function __triggerError($message, $file, $line, $code = 0, $depthLimit = null)
 	{
+		$message = $message . "depth=" . $depthLimit;
 	        wfDebug(print_r(wfDebugBacktrace($depthLimit),true));
 		if (self::$useExceptions)
 			throw new S3Exception($message, $file, $line, $code);
@@ -709,8 +735,9 @@ class S3
 			$rest->response->error = array('code' => $rest->response->code, 'message' => 'Unexpected HTTP status');
 		if ($rest->response->error !== false)
 		{
+                        $depthLimit = 3;
 			self::__triggerError(sprintf("S3::putObject(): [%s] %s",
-			$rest->response->error['code'], $rest->response->error['message']), __FILE__, __LINE__);
+			$rest->response->error['code'], $rest->response->error['message']), __FILE__, __LINE__, 0, $depthLimit);
 			return false;
 		}
 		return true;
@@ -798,24 +825,37 @@ class S3
 	*/
 	public static function getObjectInfo($bucket, $uri, $returnInfo = true)
 	{
-		$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
+                $pass = 0;
 		// This was hacked by cariaso
 		// when doing a runJobs.php, this is called
 		// repeatedly. It would be nicer to cache this for a
 		// while, and re-request whenthe code below triggers a 403
-		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
-		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
-		$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
+
+		$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
+		$rest->setAmzHeader('x-amz-security-token', self::$__token);
+
 		// This was hacked by cariaso
 
 		$rest = $rest->getResponse();
-		if ($rest->error === false && ($rest->code !== 200 && $rest->code !== 404  && $rest->code !== 403))
+
+                while ($rest->error === false && $rest->code === 403) {
+		    trigger_error('got 403 updating authorization credentials '.$pass, E_USER_WARNING);
+                    $pass += 1;
+		    self::setAuthToken();
+		    $rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
+		    $rest->setAmzHeader('x-amz-security-token', self::$__token);
+		    $rest = $rest->getResponse();
+                }
+
+		if ($rest->error === false && ($rest->code !== 200 && $rest->code !== 404))
 			$rest->error = array('code' => $rest->code, 'message' => 'Unexpected HTTP status');
+
+
 		if ($rest->error !== false)
 		{
                         $depthLimit = 2;
 			self::__triggerError(sprintf("S3::getObjectInfo({$bucket}, {$uri}): [%s] %s",
-			$rest->error['code'], $rest->error['message']), __FILE__, __LINE__, $rest->code, $depthLimit);
+			$rest->code, $rest->error['message']), __FILE__, __LINE__, $rest->code, $depthLimit);
 			return false;
 		}
 		return $rest->code == 200 ? $returnInfo ? $rest->headers : true : false;
@@ -2035,7 +2075,7 @@ final class S3Request
 	public $data = false;
 
 	/**
-	 * S3 request respone
+	 * S3 request response
 	 *
 	 * @var object
 	 * @access public
