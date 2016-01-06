@@ -203,7 +203,9 @@ class S3
 	* @return void
 	*/
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = false, $endpoint = 's3.amazonaws.com')
-	{
+  {
+    print("Access Key: " . $accessKey . "<br />\n")
+    print("Secret Key Length: " . strlen($secretKey) . "<br />\n")
 		if ($accessKey !== null && $secretKey !== null) {
 			self::setAuth($accessKey, $secretKey);
 		} else {
@@ -832,7 +834,7 @@ class S3
 		// This was hacked by cariaso
 		// when doing a runJobs.php, this is called
 		// repeatedly. It would be nicer to cache this for a
-		// while, and re-request whenthe code below triggers a 403
+		// while, and re-request when the code below triggers a 403
 
 		$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
 		$rest->setAmzHeader('x-amz-security-token', self::$__token);
@@ -841,6 +843,7 @@ class S3
 
 		$rest = $rest->getResponse();
 
+    // Should only be called to fetch new IAM temporary credentials (due to expiry etc)
 		while ($rest->error === false && $rest->code === 403) {
 		    trigger_error('got 403 updating authorization credentials '.$pass, E_USER_WARNING);
 		    $pass += 1;
