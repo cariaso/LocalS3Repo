@@ -203,9 +203,9 @@ class S3
 	{
 		if ($accessKey !== null && $secretKey !== null) {
 			self::setAuth($accessKey, $secretKey);
-                } else {
-		        self::setAuthToken();
-                }
+		} else {
+			self::setAuthToken();
+		}
 		self::$useSSL = $useSSL;
 		self::$endpoint = $endpoint;
 	}
