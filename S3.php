@@ -1,10 +1,13 @@
 <?php
 /*
-  	Modified to work with 1.23 and IAM roles.
-        cariaso - cariaso@snpedia.com
+		Modified to work with 1.26
+	CpuID - nathan@nightsys.net
 
-  	Modified to work with 1.21 and CloudFront.
-        Owen Borseth - owen at borseth dot us
+		Modified to work with 1.23 and IAM roles.
+	cariaso - cariaso@snpedia.com
+
+		Modified to work with 1.21 and CloudFront.
+	Owen Borseth - owen at borseth dot us
 */
 
 /**
@@ -383,7 +386,7 @@ class S3
 	private static function __triggerError($message, $file, $line, $code = 0, $depthLimit = null)
 	{
 		$message = $message . "depth=" . $depthLimit;
-	        wfDebug(print_r(wfDebugBacktrace($depthLimit),true));
+		wfDebug(print_r(wfDebugBacktrace($depthLimit),true));
 		if (self::$useExceptions)
 			throw new S3Exception($message, $file, $line, $code);
 		else
@@ -649,7 +652,7 @@ class S3
 	*/
 	public static function putObject($input, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array(), $storageClass = self::STORAGE_CLASS_STANDARD, $serverSideEncryption = self::SSE_NONE)
 	{
-   	        wfDebug(__METHOD__.": before $uri\n");
+   		wfDebug(__METHOD__.": before $uri\n");
 
 		$uri = urldecode($uri);
 		wfDebug(__METHOD__.": after $uri\n");
@@ -735,7 +738,7 @@ class S3
 			$rest->response->error = array('code' => $rest->response->code, 'message' => 'Unexpected HTTP status');
 		if ($rest->response->error !== false)
 		{
-                        $depthLimit = 3;
+			$depthLimit = 3;
 			self::__triggerError(sprintf("S3::putObject(): [%s] %s",
 			$rest->response->error['code'], $rest->response->error['message']), __FILE__, __LINE__, 0, $depthLimit);
 			return false;
@@ -807,7 +810,7 @@ class S3
 
 		if ($rest->response->error !== false) 
 		{
-		        self::__triggerError(sprintf("S3::getObject({$bucket}, {$uri}): [%s] %s",
+			self::__triggerError(sprintf("S3::getObject({$bucket}, {$uri}): [%s] %s",
 			$rest->response->error['code'], $rest->response->error['message']), __FILE__, __LINE__);
 			return false;
 		}
@@ -825,7 +828,7 @@ class S3
 	*/
 	public static function getObjectInfo($bucket, $uri, $returnInfo = true)
 	{
-                $pass = 0;
+		$pass = 0;
 		// This was hacked by cariaso
 		// when doing a runJobs.php, this is called
 		// repeatedly. It would be nicer to cache this for a
@@ -838,14 +841,14 @@ class S3
 
 		$rest = $rest->getResponse();
 
-                while ($rest->error === false && $rest->code === 403) {
+		while ($rest->error === false && $rest->code === 403) {
 		    trigger_error('got 403 updating authorization credentials '.$pass, E_USER_WARNING);
-                    $pass += 1;
+		    $pass += 1;
 		    self::setAuthToken();
 		    $rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
 		    $rest->setAmzHeader('x-amz-security-token', self::$__token);
 		    $rest = $rest->getResponse();
-                }
+		}
 
 		if ($rest->error === false && ($rest->code !== 200 && $rest->code !== 404))
 			$rest->error = array('code' => $rest->code, 'message' => 'Unexpected HTTP status');
@@ -853,7 +856,7 @@ class S3
 
 		if ($rest->error !== false)
 		{
-                        $depthLimit = 2;
+			$depthLimit = 2;
 			self::__triggerError(sprintf("S3::getObjectInfo({$bucket}, {$uri}): [%s] %s",
 			$rest->code, $rest->error['message']), __FILE__, __LINE__, $rest->code, $depthLimit);
 			return false;
