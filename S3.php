@@ -204,8 +204,8 @@ class S3
 	*/
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = false, $endpoint = 's3.amazonaws.com')
   {
-    print("Access Key: " . $accessKey . "<br />\n")
-    print("Secret Key Length: " . strlen($secretKey) . "<br />\n")
+    print("Access Key: " . $accessKey . "<br />\n");
+    print("Secret Key Length: " . strlen($secretKey) . "<br />\n");
 		if ($accessKey !== null && $secretKey !== null) {
 			self::setAuth($accessKey, $secretKey);
 		} else {
