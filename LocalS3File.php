@@ -792,7 +792,7 @@ class LocalS3File extends File {
 	/**
 	 * Delete all previously generated thumbnails, refresh metadata in memcached and purge the squid
 	 */
-	function purgeCache($options = Array) {
+	function purgeCache( $options = array() ) {
 		// Refresh metadata cache
 		$this->purgeMetadataCache();
 
@@ -1162,7 +1162,7 @@ class LocalS3File extends File {
 	 * @return FileRepoStatus object. On success, the value member contains the
 	 *     archive name, or an empty string if it was a new file.
 	 */
-	function publish( $srcPath, $flags = 0, array $options = Array ) {
+	function publish( $srcPath, $flags = 0, array $options = array() ) {
 		$this->lock();
 		$dstRel = $this->getRel();
 		$archiveName = gmdate( 'YmdHis' ) . '!'. $this->getName();
