@@ -330,7 +330,7 @@ class LocalS3File extends File {
 	/**
 	 * Load file metadata from cache or DB, unless already loaded
 	 */
-	function load() {
+	function load( $flags = 0 ) {
 		if ( !$this->dataLoaded ) {
 			if ( !$this->loadFromCache() ) {
 				$this->loadFromDB();
@@ -792,7 +792,7 @@ class LocalS3File extends File {
 	/**
 	 * Delete all previously generated thumbnails, refresh metadata in memcached and purge the squid
 	 */
-	function purgeCache() {
+	function purgeCache($options = Array) {
 		// Refresh metadata cache
 		$this->purgeMetadataCache();
 
@@ -971,7 +971,7 @@ class LocalS3File extends File {
 	 * @deprecated use upload()
 	 */
 	function recordUpload( $oldver, $desc, $license = '', $copyStatus = '', $source = '',
-		$watch = false, $timestamp = false )
+		$watch = false, $timestamp = false, User $user = NULL )
 	{
 		$pageText = SpecialUpload::getInitialPageText( $desc, $license, $copyStatus, $source );
 		if ( !$this->recordUpload2( $oldver, $desc, $pageText ) ) {
@@ -1162,7 +1162,7 @@ class LocalS3File extends File {
 	 * @return FileRepoStatus object. On success, the value member contains the
 	 *     archive name, or an empty string if it was a new file.
 	 */
-	function publish( $srcPath, $flags = 0 ) {
+	function publish( $srcPath, $flags = 0, array $options = Array ) {
 		$this->lock();
 		$dstRel = $this->getRel();
 		$archiveName = gmdate( 'YmdHis' ) . '!'. $this->getName();
@@ -1232,7 +1232,7 @@ class LocalS3File extends File {
 	 * @param $suppress
 	 * @return FileRepoStatus object.
 	 */
-	function delete( $reason, $suppress = false ) {
+	function delete( $reason, $suppress = false, $user = NULL ) {
 		$this->lock();
 		$batch = new LocalS3FileDeleteBatch( $this, $reason, $suppress );
 		$batch->addCurrent();
@@ -1332,7 +1332,7 @@ class LocalS3File extends File {
 	 * This is not used by ImagePage for local files, since (among other things)
 	 * it skips the parser cache.
 	 */
-	function getDescriptionText() {
+	function getDescriptionText( $lang = false ) {
 		global $wgParser;
 		$revision = Revision::newFromTitle( $this->title );
 		if ( !$revision ) return false;
@@ -1342,7 +1342,7 @@ class LocalS3File extends File {
 		return $pout->getText();
 	}
 
-	function getDescription() {
+	function getDescription( $audience = self::FOR_PUBLIC, User $user = NULL ) {
 		$this->load();
 		return $this->description;
 	}
