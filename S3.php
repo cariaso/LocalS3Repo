@@ -126,9 +126,8 @@ class S3
 	 *
 	 * @var bool
 	 * @access public
-	 * @static
 	 */
-	public static $useSSL = false;
+	public $useSSL = false;
 	
 	/**
 	 * Use SSL validation?
