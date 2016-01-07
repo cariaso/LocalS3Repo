@@ -59,6 +59,14 @@ class S3
 	const SSE_NONE = '';
 	const SSE_AES256 = 'AES256';
 
+  /**
+   * If we are using IAM Instance Profile auth (via EC2 Metadata Service), this will be true.
+   *
+   * @var bool
+   * @access private
+   * @static
+   */
+  private static $__iamInstanceProfileAuth = null;
 	/**
 	 * The AWS Access key
 	 *
@@ -206,9 +214,11 @@ class S3
   {
     print("Access Key: " . $accessKey . "<br />\n");
     print("Secret Key Length: " . strlen($secretKey) . "<br />\n");
-		if ($accessKey !== null && $secretKey !== null) {
+    if ($accessKey !== null && $secretKey !== null) {
+      self::$__iamInstanceProfileAuth = false;
 			self::setAuth($accessKey, $secretKey);
 		} else {
+      self::$__iamInstanceProfileAuth = true;
 			self::setAuthToken();
 		}
 		self::$useSSL = $useSSL;
@@ -654,7 +664,7 @@ class S3
 	*/
 	public static function putObject($input, $bucket, $uri, $acl = self::ACL_PRIVATE, $metaHeaders = array(), $requestHeaders = array(), $storageClass = self::STORAGE_CLASS_STANDARD, $serverSideEncryption = self::SSE_NONE)
 	{
-   		wfDebug(__METHOD__.": before $uri\n");
+	 	wfDebug(__METHOD__.": before $uri\n");
 
 		$uri = urldecode($uri);
 		wfDebug(__METHOD__.": after $uri\n");
@@ -697,10 +707,10 @@ class S3
 		if (!isset($input['type']))
 		{
 
-		  if (isset($requestHeaders['Content-Type'])) {
+			if (isset($requestHeaders['Content-Type'])) {
 				$input['type'] =& $requestHeaders['Content-Type'];
 
-		  } elseif (isset($input['file'])) {
+			} elseif (isset($input['file'])) {
 				$input['type'] = self::__getMIMEType($input['file']);
 
 		} else {
@@ -723,12 +733,14 @@ class S3
 			$rest->setHeader('Content-Type', $input['type']);
 			if (isset($input['md5sum'])) $rest->setHeader('Content-MD5', $input['md5sum']);
 
-
-			// This was hacked by cariaso
-			$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
-			$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
-			$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
-			// This was hacked by cariaso
+			// This was hacked by cariaso and CpuID
+			// Set the AMZ security token if we are using IAM Instance Profile Auth
+			if (self::$__iamInstanceProfileAuth == true) {
+				$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+				$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+				$rest->setAmzHeader('x-amz-security-token', $auth['Token']);
+			}
+			// This was hacked by cariaso and CpuID
 
 			$rest->setAmzHeader('x-amz-acl', $acl);
 			foreach ($metaHeaders as $h => $v) $rest->setAmzHeader('x-amz-meta-'.$h, $v);
@@ -843,14 +855,16 @@ class S3
 
 		$rest = $rest->getResponse();
 
-    // Should only be called to fetch new IAM temporary credentials (due to expiry etc)
-		while ($rest->error === false && $rest->code === 403) {
-		    trigger_error('got 403 updating authorization credentials '.$pass, E_USER_WARNING);
-		    $pass += 1;
-		    self::setAuthToken();
-		    $rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
-		    $rest->setAmzHeader('x-amz-security-token', self::$__token);
-		    $rest = $rest->getResponse();
+		// Should only be called to fetch new IAM temporary credentials (due to expiry etc)
+		if (self::$__iamInstanceProfileAuth == true) {
+			while ($rest->error === false && $rest->code === 403) {
+					trigger_error('got 403 updating authorization credentials '.$pass, E_USER_WARNING);
+					$pass += 1;
+					self::setAuthToken();
+					$rest = new S3Request('HEAD', $bucket, $uri, self::$endpoint);
+					$rest->setAmzHeader('x-amz-security-token', self::$__token);
+					$rest = $rest->getResponse();
+			}
 		}
 
 		if ($rest->error === false && ($rest->code !== 200 && $rest->code !== 404))
@@ -1246,12 +1260,20 @@ class S3
 	{
 		$expires = self::__getTime() + $lifetime;
 		$uri = str_replace(array('%2F', '%2B'), array('/', '+'), rawurlencode($uri));
-		$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
-		$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
-		$token=rawurlencode($auth['Token']);
-		return sprintf(($https ? 'https' : 'http').'://%s/%s?AWSAccessKeyId=%s&Expires=%u&x-amz-security-token=%s&Signature=%s',
-		// $hostBucket ? $bucket : $bucket.'.s3.amazonaws.com', $uri, self::$__accessKey, $expires,
-		$hostBucket ? $bucket : self::$endpoint.'/'.$bucket, $uri, self::$__accessKey, $expires, $token, urlencode(self::__getHash("GET\n\n\n{$expires}\nx-amz-security-token:{$auth['Token']}\n/{$bucket}/{$uri}")));;
+    if (self::$__iamInstanceProfileAuth == true) {
+			// Use IAM instance profile authentication (from EC2 Metadata Service)
+			$role_name = file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+			$auth = json_decode(file_get_contents('http://169.254.169.254/latest/meta-data/iam/security-credentials/'.$role_name),true);
+			$token=rawurlencode($auth['Token']);
+			return sprintf(($https ? 'https' : 'http').'://%s/%s?AWSAccessKeyId=%s&Expires=%u&x-amz-security-token=%s&Signature=%s',
+			// $hostBucket ? $bucket : $bucket.'.s3.amazonaws.com', $uri, self::$__accessKey, $expires,
+			$hostBucket ? $bucket : self::$endpoint.'/'.$bucket, $uri, self::$__accessKey, $expires, $token, urlencode(self::__getHash("GET\n\n\n{$expires}\nx-amz-security-token:{$auth['Token']}\n/{$bucket}/{$uri}")));;
+		} else {
+			// Use static IAM credentials authentication
+			return sprintf(($https ? 'https' : 'http').'://%s/%s?AWSAccessKeyId=%s&Expires=%u&Signature=%s',
+			$hostBucket ? $bucket : $bucket.'.s3.amazonaws.com', $uri, self::$__accessKey, $expires,
+			urlencode(self::__getHash("GET\n\n\n{$expires}\n/{$bucket}/{$uri}")));
+		}
 	}
 
 
