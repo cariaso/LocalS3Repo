@@ -1,9 +1,7 @@
 ## LocalS3Repo - MediaWiki Extension for storing File Uploads/Images on S3
 
-LocalS3Repo modified to work with MediaWiki 1.26.x, CloudFront CDN, and rotating IAM keys
+LocalS3Repo modified to work with MediaWiki 1.26.x, CloudFront CDN, and rotating IAM keys.
 Modified further to support both IAM keys and static auth (was hardcoded to IAM keys only in some places)
-
-Nathan Sullivan - nathan at nightsys dot net
 
 Based on
 * https://github.com/cariaso/LocalS3Repo
