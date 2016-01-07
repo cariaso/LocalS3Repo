@@ -1,4 +1,4 @@
-# LocalS3Repo - MediaWiki Extension for storing File Uploads/Images on S3
+## LocalS3Repo - MediaWiki Extension for storing File Uploads/Images on S3
 
 LocalS3Repo modified to work with MediaWiki 1.26.x, CloudFront CDN, and rotating IAM keys
 Modified further to support both IAM keys and static auth (was hardcoded to IAM keys only in some places)
@@ -10,12 +10,12 @@ Based on
 * https://github.com/oborseth/LocalS3Repo2
 * https://www.mediawiki.org/wiki/Extension:LocalS3Repo
 	
-# Moving from local files to S3
+## Moving from local files to S3
 
 A maintenance script that was used to move current images between s3 buckets is included.
 It will probably need to be slightly modified to work for you.
 
-# Settings
+## Settings
 
 Modify the below as required and put them in your LocalSettings.php:
 
