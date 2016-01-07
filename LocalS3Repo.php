@@ -52,6 +52,10 @@ require_once("$IP/extensions/LocalS3Repo/FSs3Repo.php");
 require_once("$IP/extensions/LocalS3Repo/LocalS3File.php");
 require_once("$IP/extensions/LocalS3Repo/OldLocalS3File.php");
 
+// We just define this globally, but use the FSs3Repo constructor to actually create the S3 object
+// with the required credentials attached.
+$s3 = null;
+
 class LocalS3Repo extends FSs3Repo {
 	var $fileFactory = array( 'LocalS3File', 'newFromTitle' );
 	var $oldFileFactory = array( 'OldLocalS3File', 'newFromTitle' );
