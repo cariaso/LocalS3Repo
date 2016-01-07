@@ -10,6 +10,7 @@
  * @ingroup FileRepo
  */
 class FSs3Repo extends FileRepo {
+  public $s3 = null;
 	var $directory, $deletedDir, $deletedHashLevels, $fileMode;
 	var $urlbase;
 	var $AWS_ACCESS_KEY, $AWS_SECRET_KEY, $AWS_S3_BUCKET, $AWS_S3_PUBLIC, $AWS_S3_SSL;
@@ -30,8 +31,8 @@ class FSs3Repo extends FileRepo {
 		$this->cloudFrontUrl = $info['cloudFrontUrl'];
 		$this->cloudFrontDirectory = $this->cloudFrontUrl.($this->directory ? $this->directory : $info['wgUploadDirectory']);
 
-		global $s3;
-		$s3->setAuth($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY);
+    // Instantiate the class
+    $s3 = new S3($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY);
 
 		// Optional settings
 		$this->AWS_S3_PUBLIC = isset( $info['AWS_S3_PUBLIC'] ) ? $info['AWS_S3_PUBLIC'] : false;

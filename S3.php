@@ -211,14 +211,15 @@ class S3
 	* @return void
 	*/
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = false, $endpoint = 's3.amazonaws.com')
-  {
-    print("Access Key: " . $accessKey . "<br />\n");
-    print("Secret Key Length: " . strlen($secretKey) . "<br />\n");
-    if ($accessKey !== null && $secretKey !== null) {
-      self::$__iamInstanceProfileAuth = false;
+	{
+		print("Access Key: " . $accessKey . "<br />\n");
+		print("Secret Key Length: " . strlen($secretKey) . "<br />\n");
+		exit(1)
+		if ($accessKey !== null && $secretKey !== null) {
+			self::$__iamInstanceProfileAuth = false;
 			self::setAuth($accessKey, $secretKey);
 		} else {
-      self::$__iamInstanceProfileAuth = true;
+			self::$__iamInstanceProfileAuth = true;
 			self::setAuthToken();
 		}
 		self::$useSSL = $useSSL;
