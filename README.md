@@ -13,6 +13,12 @@ Based on
 A maintenance script that was used to move current images between s3 buckets is included.
 It will probably need to be slightly modified to work for you.
 
+Due to the fiddlyness of the migration script, consider using awscli to just sync the images dir up, example:
+
+```
+aws s3 sync images/ s3://bucketname/
+```
+
 ## Settings
 
 Modify the below as required and put them in your LocalSettings.php:
