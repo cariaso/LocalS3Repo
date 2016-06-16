@@ -91,7 +91,7 @@ class LocalS3File extends File {
 		wfDebug( __METHOD__ . " return: $path \n".print_r($this,true)."\n" );
 		return $path;
 	}
-	
+
 	/**
 	 * Create a LocalS3File from a title
 	 * Do not call this except from inside a repo class.
@@ -112,7 +112,7 @@ class LocalS3File extends File {
 		$file->loadFromRow( $row );
 		return $file;
 	}
-	
+
 	/**
 	 * Create a LocalS3File from a SHA-1 key
 	 * Do not call this except from inside a repo class.
@@ -132,7 +132,7 @@ class LocalS3File extends File {
 			return false;
 		}
 	}
-	
+
 	/**
 	 * Fields in the image table
 	 */
@@ -171,7 +171,7 @@ class LocalS3File extends File {
 	}
 
 	/**
-	 * Get the memcached key for the main data for this file, or false if 
+	 * Get the memcached key for the main data for this file, or false if
 	 * there is no access to the shared cache.
 	 */
 	function getCacheKey() {
@@ -238,7 +238,7 @@ class LocalS3File extends File {
 	 * Load metadata from the file itself
 	 */
 	function loadFromFile() {
-		$this->setProps( self::getPropsFromPath( $this->getPath() ) );
+		$this->setProps( FSFile::getPropsFromPath( $this->getPath() ) );
 	}
 
 	function getCacheFields( $prefix = 'img_' ) {
@@ -327,7 +327,7 @@ class LocalS3File extends File {
 	/**
 	 * Load file metadata from cache or DB, unless already loaded
 	 */
-	function load() {
+	function load($flags = 0) {
 		if ( !$this->dataLoaded ) {
 			if ( !$this->loadFromCache() ) {
 				$this->loadFromDB();
@@ -344,16 +344,16 @@ class LocalS3File extends File {
 		if ( wfReadOnly() ) {
 			return;
 		}
-		if ( is_null( $this->media_type ) || $this->mime == 'image/svg') 
+		if ( is_null( $this->media_type ) || $this->mime == 'image/svg')
 		{
 
 			$this->upgradeRow();
 			$this->upgraded = true;
-		} 
-		else 
+		}
+		else
 		{
 			$handler = $this->getHandler();
-			if ( $handler && !$handler->isMetadataValid( $this, $this->metadata ) ) 
+			if ( $handler && !$handler->isMetadataValid( $this, $this->metadata ) )
 			{
 				$this->upgradeRow();
 				$this->upgraded = true;
@@ -388,19 +388,25 @@ class LocalS3File extends File {
 		}
 		wfDebug( __METHOD__ . ': upgrading ' . $this->getName() . " to the current schema\n" );
 
-		$dbw->update( 'image',
-			array(
-				'img_width' => $this->width,
-				'img_height' => $this->height,
-				'img_bits' => $this->bits,
-				'img_media_type' => $this->media_type,
-				'img_major_mime' => $major,
-				'img_minor_mime' => $minor,
-				'img_metadata' => $this->metadata,
-				'img_sha1' => $this->sha1,
-			), array( 'img_name' => $this->getName() ),
-			__METHOD__
-		);
+		//TODO: Handle this properly.
+		//This is a total hack, but PDFs seem to be causing issues here because they have large metadata values.
+		$ignored_media_types = array('pdf');
+
+		if( !in_array($this->media_type, $ignored_media_types) ){
+			$dbw->update( 'image',
+				array(
+					'img_width' => $this->width,
+					'img_height' => $this->height,
+					'img_bits' => $this->bits,
+					'img_media_type' => $this->media_type,
+					'img_major_mime' => $major,
+					'img_minor_mime' => $minor,
+					'img_metadata' => $this->metadata,
+					'img_sha1' => $this->sha1,
+				), array( 'img_name' => $this->getName() ),
+				__METHOD__
+			);
+		}
 		$this->saveToCache();
 		wfProfileOut( __METHOD__ );
 	}
@@ -416,9 +422,9 @@ class LocalS3File extends File {
 		$this->dataLoaded = true;
 		$fields = $this->getCacheFields( '' );
 		$fields[] = 'fileExists';
-		foreach ( $fields as $field ) 
+		foreach ( $fields as $field )
 		{
-			if ( isset( $info[$field] ) ) 
+			if ( isset( $info[$field] ) )
 			{
 				$this->$field = $info[$field];
 			}
@@ -636,7 +642,7 @@ class LocalS3File extends File {
 			wfDebug( __METHOD__. " thumb: ".print_r($thumb->getUrl(),true)."\n" );
 			$s3path = $thumbPath;
 
-			$info = $s3->putObjectFile($this->thumbTempPath, $this->repo->AWS_S3_BUCKET, $s3path, 
+			$info = $s3->putObjectFile($this->thumbTempPath, $this->repo->AWS_S3_BUCKET, $s3path,
 							($this->repo->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE));
 
 
@@ -651,9 +657,9 @@ class LocalS3File extends File {
 					$thumb = $this->handler->getTransform( $this, $thumbPath, $thumbUrl, $params );
 				}
 			}
-			
-			// Purge. Useful in the event of Core -> Squid connection failure or squid 
-			// purge collisions from elsewhere during failure. Don't keep triggering for 
+
+			// Purge. Useful in the event of Core -> Squid connection failure or squid
+			// purge collisions from elsewhere during failure. Don't keep triggering for
 			// "thumbs" which have the main image URL though (bug 13776)
 			if ( $wgUseSquid && ( !$thumb || $thumb->isError() || $thumb->getUrl() != $this->getURL()) ) {
 				SquidUpdate::purge( array( $thumbUrl ) );
@@ -664,7 +670,7 @@ class LocalS3File extends File {
 		wfDebug( __METHOD__. " return thumb: ".print_r($thumb,true)."\n" );
 		return is_object( $thumb ) ? $thumb : false;
 	}
-	
+
 	/** Get the URL of the thumbnail directory, or a particular file if $suffix is specified.
 	 *  $suffix is a path relative to the S3 bucket, and includes the upload directory
 	 */
@@ -674,9 +680,9 @@ class LocalS3File extends File {
 		else
 			$path = $this->repo->getUrlBase() . "/$suffix";
 
-		if(! $this->repo->AWS_S3_PUBLIC) 
-			$this->url = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, 
-				$suffix, 60*60*24*7 /*week*/, false, 
+		if(! $this->repo->AWS_S3_PUBLIC)
+			$this->url = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET,
+				$suffix, 60*60*24*7 /*week*/, false,
 				$this->repo->AWS_S3_SSL);
 		return $path;
 	}
@@ -706,7 +712,7 @@ class LocalS3File extends File {
 		return $this->tempPath;
 	}
 
-	
+
 	/**
 	 * Fix thumbnail files from 1.4 or before, with extreme prejudice
 	 */
@@ -789,7 +795,7 @@ class LocalS3File extends File {
 	/**
 	 * Delete all previously generated thumbnails, refresh metadata in memcached and purge the squid
 	 */
-	function purgeCache() {
+	function purgeCache($options = array()) {
 		// Refresh metadata cache
 		$this->purgeMetadataCache();
 
@@ -849,7 +855,7 @@ class LocalS3File extends File {
 		$opts['ORDER BY'] = "oi_timestamp $order";
 		$opts['USE INDEX'] = array( 'oldimage' => 'oi_name_timestamp' );
 
-		wfRunHooks( 'LocalS3File::getHistory', array( &$this, &$tables, &$fields, 
+		wfRunHooks( 'LocalS3File::getHistory', array( &$this, &$tables, &$fields,
 			&$conds, &$opts, &$join_conds ) );
 
 		$res = $dbr->select( $tables, $fields, $conds, __METHOD__, $opts, $join_conds );
@@ -965,10 +971,11 @@ class LocalS3File extends File {
 
 	/**
 	 * Record a file upload in the upload log and the image table
+	 * $oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = NULL
 	 * @deprecated use upload()
 	 */
 	function recordUpload( $oldver, $desc, $license = '', $copyStatus = '', $source = '',
-		$watch = false, $timestamp = false )
+		$watch = false, $timestamp = false, User $user = NULL )
 	{
 		$pageText = SpecialUpload::getInitialPageText( $desc, $license, $copyStatus, $source );
 		if ( !$this->recordUpload2( $oldver, $desc, $pageText ) ) {
@@ -989,7 +996,7 @@ class LocalS3File extends File {
 	{
 		if( is_null( $user ) ) {
 			global $wgUser;
-			$user = $wgUser; 
+			$user = $wgUser;
 		}
 
 		$dbw = $this->repo->getMasterDB();
@@ -1111,7 +1118,7 @@ class LocalS3File extends File {
 			$nullRevision = Revision::newNullRevision( $dbw, $descTitle->getArticleId(),
 				$log->getRcComment(), false );
 			$nullRevision->insertOn( $dbw );
-			
+
 			wfRunHooks( 'NewRevisionFromEditComplete', array( $article, $nullRevision, $latest, $user ) );
 			$article->updateRevisionOn( $dbw, $nullRevision );
 
@@ -1159,7 +1166,7 @@ class LocalS3File extends File {
 	 * @return FileRepoStatus object. On success, the value member contains the
 	 *     archive name, or an empty string if it was a new file.
 	 */
-	function publish( $srcPath, $flags = 0 ) {
+	function publish( $srcPath, $flags = 0, array $options = array() ) {
 		$this->lock();
 		$dstRel = $this->getRel();
 		$archiveName = gmdate( 'YmdHis' ) . '!'. $this->getName();
@@ -1213,7 +1220,7 @@ class LocalS3File extends File {
 			// Purge the new image
 			$this->purgeEverything();
 		}
-		
+
 		return $status;
 	}
 
@@ -1229,7 +1236,7 @@ class LocalS3File extends File {
 	 * @param $suppress
 	 * @return FileRepoStatus object.
 	 */
-	function delete( $reason, $suppress = false ) {
+	function delete( $reason, $suppress = false, $user = NULL ) {
 		$this->lock();
 		$batch = new LocalS3FileDeleteBatch( $this, $reason, $suppress );
 		$batch->addCurrent();
@@ -1329,7 +1336,7 @@ class LocalS3File extends File {
 	 * This is not used by ImagePage for local files, since (among other things)
 	 * it skips the parser cache.
 	 */
-	function getDescriptionText() {
+	function getDescriptionText( $lang = false ) {
 		global $wgParser;
 		$revision = Revision::newFromTitle( $this->title );
 		if ( !$revision ) return false;
@@ -1339,7 +1346,7 @@ class LocalS3File extends File {
 		return $pout->getText();
 	}
 
-	function getDescription() {
+	function getDescription($audience = self::FOR_PUBLIC, User $user = NULL) {
 		$this->load();
 		return $this->description;
 	}
@@ -1407,14 +1414,14 @@ class LocalS3File extends File {
 	 * Return the complete URL of the file
 	 */
 	public function getUrl() {
-		if ( !isset( $this->url ) ) 
+		if ( !isset( $this->url ) )
 		{
 			if($this->repo->cloudFrontUrl)
 				$this->url  = $this->repo->cloudFrontUrl.$this->repo->directory."/".$this->getUrlRel();
 			else
 				$this->url = $this->repo->getZoneUrl( 'public' ) . '/' . $this->getUrlRel();
 
-			if(! $this->repo->AWS_S3_PUBLIC) 
+			if(! $this->repo->AWS_S3_PUBLIC)
 				$this->url = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->directory . '/'  . $this->getUrlRel(), 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
 		}
 		wfDebug( __METHOD__ . ": ".print_r($this->url, true)."\n" );
@@ -2097,7 +2104,7 @@ class LocalS3FileMoveBatch {
 		$dbw = $this->db;
 
 		// Update current image
-		$dbw->update( 
+		$dbw->update(
 			'image',
 			array( 'img_name' => $this->newName ),
 			array( 'img_name' => $this->oldName ),
@@ -2129,7 +2136,7 @@ class LocalS3FileMoveBatch {
 
 	/**
 	 * Generate triplets for FSs3Repo::storeBatch().
-	 */ 
+	 */
 	function getMoveTriplets() {
 		$moves = array_merge( array( $this->cur ), $this->olds );
 		$triplets = array();	// The format is: (srcUrl, destZone, destUrl)
@@ -2144,7 +2151,7 @@ class LocalS3FileMoveBatch {
 
 	/**
 	 * Removes non-existent files from move batch.
-	 */ 
+	 */
 	function removeNonexistentFiles( $triplets ) {
 		$files = array();
 		foreach( $triplets as $file )

@@ -61,9 +61,10 @@ class S3 {
 	* @return void
 	*/
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = true) {
-		if ($accessKey !== null && $secretKey !== null)
+		if ($accessKey !== null && $secretKey !== null){
 			self::setAuth($accessKey, $secretKey);
-		self::$useSSL = $useSSL;
+			self::$useSSL = $useSSL;
+		}
 	}
 
 
@@ -803,7 +804,7 @@ class S3 {
 		}
 		array_push($policy->conditions, array('content-length-range', 0, $maxFileSize));
 		$policy = base64_encode(str_replace('\/', '/', json_encode($policy)));
-	
+
 		// Create parameters
 		$params = new stdClass;
 		$params->AWSAccessKeyId = self::$__accessKey;
