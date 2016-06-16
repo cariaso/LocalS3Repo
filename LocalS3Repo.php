@@ -54,7 +54,7 @@ require_once("$IP/extensions/LocalS3Repo/LocalS3File.php");
 require_once("$IP/extensions/LocalS3Repo/OldLocalS3File.php");
 
 class LocalS3Repo extends FSs3Repo {
-  
+
 	var $fileFactory = array( 'LocalS3File', 'newFromTitle' );
 	var $oldFileFactory = array( 'OldLocalS3File', 'newFromTitle' );
 	var $fileFromRowFactory = array( 'LocalS3File', 'newFromRow' );
