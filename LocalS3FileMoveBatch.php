@@ -1,5 +1,7 @@
 <?php
 
+use FSs3Repo;
+
 /**
  * Helper class for file movement
  * @ingroup FileRepo

@@ -32,11 +32,13 @@ define( 'MW_FILE_VERSION', 8 );
 use ManualLogEntry;
 use WikiFilePage;
 
-if (!class_exists('S3')) require_once 'S3.php';
-if (!class_exists('S3')) require_once '$IP/extensions/LocalS3Repo/S3.php';
-require_once("$IP/extensions/LocalS3Repo/LocalS3FileMoveBatch.php");
-require_once("$IP/extensions/LocalS3Repo/LocalS3FileRestoreBatch.php");
-require_once("$IP/extensions/LocalS3Repo/LocalS3FileDeleteBatch.php");
+use S3;
+use LocalS3FileMoveBatch;
+use LocalS3FileRestoreBatch;
+use LocalS3FileDeleteBatch;
+use LinksUpdate;
+use SquidUpdate;
+use HTMLCacheUpdate;
 
 class LocalS3File extends File {
 
@@ -782,31 +784,34 @@ class LocalS3File extends File {
 		}
 	}
 
+	/** getTransformScript inherited */
+	/** getUnscaledThumb inherited */
+	/** thumbName inherited */
+	/** createThumb inherited */
+	/** transform inherited */
 	/** getHandler inherited */
 	/** iconThumb inherited */
 	/** getLastError inherited */
-
 	/**
 	 * Get all thumbnail names previously generated for this file
+	 * @param string|bool $archiveName Name of an archive file, default false
+	 * @return array First element is the base dir, then files in that base dir.
 	 */
-	function getThumbnails() {
-		$this->load();
-		$files = array();
-		$dir = $this->getThumbPath();
-
-		if ( is_dir( $dir ) ) {
-			$handle = opendir( $dir );
-
-			if ( $handle ) {
-				while ( false !== ( $file = readdir( $handle ) ) ) {
-					if ( $file{0} != '.' ) {
-						$files[] = $file;
-					}
-				}
-				closedir( $handle );
-			}
+	function getThumbnails( $archiveName = false ) {
+		if ( $archiveName ) {
+			$dir = $this->getArchiveThumbPath( $archiveName );
+		} else {
+			$dir = $this->getThumbPath();
 		}
-
+		$backend = $this->repo->getBackend();
+		$files = array( $dir );
+		try {
+			$iterator = $backend->getFileList( array( 'dir' => $dir ) );
+			foreach ( $iterator as $file ) {
+				$files[] = $file;
+			}
+		} catch ( FileBackendError $e ) {
+		} // suppress (bug 54674)
 		return $files;
 	}
 
@@ -814,9 +819,7 @@ class LocalS3File extends File {
 	 * Refresh metadata in memcached, but don't touch thumbnails or squid
 	 */
 	function purgeMetadataCache() {
-		$this->loadFromDB();
-		$this->saveToCache();
-		$this->purgeHistory();
+		$this->invalidateCache();
 	}
 
 	/**
@@ -832,38 +835,97 @@ class LocalS3File extends File {
 	}
 
 	/**
-	 * Delete all previously generated thumbnails, refresh metadata in memcached and purge the squid
+	 * Delete all previously generated thumbnails, refresh metadata in memcached and purge the squid.
+	 *
+	 * @param array $options An array potentially with the key forThumbRefresh.
+	 *
+	 * @note This used to purge old thumbnails by default as well, but doesn't anymore.
 	 */
-	function purgeCache($options = array()) {
+	function purgeCache( $options = array() ) {
 		// Refresh metadata cache
 		$this->purgeMetadataCache();
-
 		// Delete thumbnails
-		$this->purgeThumbnails();
-
+		$this->purgeThumbnails( $options );
 		// Purge squid cache for this file
 		SquidUpdate::purge( array( $this->getURL() ) );
 	}
 
 	/**
-	 * Delete cached transformed files
+	 * Delete cached transformed files for an archived version only.
+	 * @param string $archiveName Name of the archived file
 	 */
-	function purgeThumbnails() {
+	function purgeOldThumbnails( $archiveName ) {
 		global $wgUseSquid;
-		// Delete thumbnails
-		$files = $this->getThumbnails();
-		$dir = $this->getThumbPath();
-		$urls = array();
+		// Get a list of old thumbnails and URLs
+		$files = $this->getThumbnails( $archiveName );
+		// Purge any custom thumbnail caches
+		Hooks::run( 'LocalFilePurgeThumbnails', array( $this, $archiveName ) );
+		$dir = array_shift( $files );
+		$this->purgeThumbList( $dir, $files );
+		// Purge the squid
+		if ( $wgUseSquid ) {
+			$urls = array();
+			foreach ( $files as $file ) {
+				$urls[] = $this->getArchiveThumbUrl( $archiveName, $file );
+			}
+			SquidUpdate::purge( $urls );
+		}
+	}
+
+	/**
+	 * Delete a list of thumbnails visible at urls
+	 * @param string $dir Base dir of the files.
+	 * @param array $files Array of strings: relative filenames (to $dir)
+	 */
+	protected function purgeThumbList( $dir, $files ) {
+		$fileListDebug = strtr(
+			var_export( $files, true ),
+			array( "\n" => '' )
+		);
+		wfDebug( __METHOD__ . ": $fileListDebug\n" );
+		$purgeList = array();
 		foreach ( $files as $file ) {
 			# Check that the base file name is part of the thumb name
 			# This is a basic sanity check to avoid erasing unrelated directories
-			if ( strpos( $file, $this->getName() ) !== false ) {
-				$url = $this->getThumbUrl( $file );
-				$urls[] = $url;
-				@unlink( "$dir/$file" );
+			if ( strpos( $file, $this->getName() ) !== false
+				|| strpos( $file, "-thumbnail" ) !== false // "short" thumb name
+			) {
+				$purgeList[] = "{$dir}/{$file}";
 			}
 		}
+		# Delete the thumbnails
+		$this->repo->quickPurgeBatch( $purgeList );
+		# Clear out the thumbnail directory if empty
+		$this->repo->quickCleanDir( $dir );
+	}
 
+	/**
+	 * Delete cached transformed files for the current version only.
+	 * @param array $options
+	 */
+	function purgeThumbnails( $options = array() ) {
+		global $wgUseSquid;
+		// Delete thumbnails
+		$files = $this->getThumbnails();
+		// Always purge all files from squid regardless of handler filters
+		$urls = array();
+		if ( $wgUseSquid ) {
+			foreach ( $files as $file ) {
+				$urls[] = $this->getThumbUrl( $file );
+			}
+			array_shift( $urls ); // don't purge directory
+		}
+		// Give media handler a chance to filter the file purge list
+		if ( !empty( $options['forThumbRefresh'] ) ) {
+			$handler = $this->getHandler();
+			if ( $handler ) {
+				$handler->filterThumbnailPurgeList( $files, $options );
+			}
+		}
+		// Purge any custom thumbnail caches
+		Hooks::run( 'LocalFilePurgeThumbnails', array( $this, false ) );
+		$dir = array_shift( $files );
+		$this->purgeThumbList( $dir, $files );
 		// Purge the squid
 		if ( $wgUseSquid ) {
 			SquidUpdate::purge( $urls );
@@ -1013,26 +1075,25 @@ class LocalS3File extends File {
 	 * $oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = NULL
 	 * @deprecated use upload()
 	 */
-	function recordUpload( $oldver, $desc, $license = '', $copyStatus = '', $source = '',
-		$watch = false, $timestamp = false, User $user = NULL )
-	{
+	function recordUpload( $oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = null ) {
+		if ( !$user ) {
+			global $wgUser;
+			$user = $wgUser;
+		}
 		$pageText = SpecialUpload::getInitialPageText( $desc, $license, $copyStatus, $source );
-		if ( !$this->recordUpload2( $oldver, $desc, $pageText ) ) {
+		if ( !$this->recordUpload2( $oldver, $desc, $pageText, false, $timestamp, $user ) ) {
 			return false;
 		}
 		if ( $watch ) {
-			global $wgUser;
-			$wgUser->addWatch( $this->getTitle() );
+			$user->addWatch( $this->getTitle() );
 		}
 		return true;
-
 	}
 
 	/**
 	 * Record a file upload in the upload log and the image table
 	 */
-	function recordUpload2( $oldver, $comment, $pageText, $props = false, $timestamp = false, $user = null )
-	{
+	function recordUpload2( $oldver, $comment, $pageText, $props = false, $timestamp = false, $user = null ) {
 		if( is_null( $user ) ) {
 			global $wgUser;
 			$user = $wgUser;
@@ -1143,22 +1204,21 @@ class LocalS3File extends File {
 		}
 
 		$descTitle = $this->getTitle();
-		$descId = $descTitle->getArticleID();
 		$wikiPage = new WikiFilePage( $descTitle );
 		$wikiPage->setFile( $this );
-		// Add the log entry...
-		$logEntry = new ManualLogEntry( 'upload', $reupload ? 'overwrite' : 'upload' );
-		$logEntry->setTimestamp( $this->timestamp );
+		# Add the log entry
+		$action = $reupload ? 'overwrite' : 'upload';
+		$logEntry = new ManualLogEntry( 'upload', $action );
 		$logEntry->setPerformer( $user );
 		$logEntry->setComment( $comment );
 		$logEntry->setTarget( $descTitle );
 		// Allow people using the api to associate log entries with the upload.
 		// Log has a timestamp, but sometimes different from upload timestamp.
 		$logEntry->setParameters(
-			[
+			array(
 				'img_sha1' => $this->sha1,
 				'img_timestamp' => $timestamp,
-			]
+			)
 		);
 		// Note we keep $logId around since during new image
 		// creation, page doesn't exist yet, so log_page = 0
@@ -1167,131 +1227,92 @@ class LocalS3File extends File {
 		// For a similar reason, we avoid making an RC entry
 		// now and wait until the page exists.
 		$logId = $logEntry->insert();
-		if ( $descTitle->exists() ) {
+		$exists = $descTitle->exists();
+		if ( $exists ) {
+			// Page exists, do RC entry now (otherwise we wait for later).
+			$logEntry->publish( $logId );
+		}
+		if ( $exists ) {
+			# Create a null revision
+			$latest = $descTitle->getLatestRevID();
 			// Use own context to get the action text in content language
 			$formatter = LogFormatter::newFromEntry( $logEntry );
 			$formatter->setContext( RequestContext::newExtraneousContext( $descTitle ) );
 			$editSummary = $formatter->getPlainActionText();
 			$nullRevision = Revision::newNullRevision(
 				$dbw,
-				$descId,
+				$descTitle->getArticleID(),
 				$editSummary,
 				false,
 				$user
 			);
-			if ( $nullRevision ) {
+			if ( !is_null( $nullRevision ) ) {
 				$nullRevision->insertOn( $dbw );
-				Hooks::run(
-					'NewRevisionFromEditComplete',
-					[ $wikiPage, $nullRevision, $nullRevision->getParentId(), $user ]
-				);
+				Hooks::run( 'NewRevisionFromEditComplete', array( $wikiPage, $nullRevision, $latest, $user ) );
 				$wikiPage->updateRevisionOn( $dbw, $nullRevision );
-				// Associate null revision id
-				$logEntry->setAssociatedRevId( $nullRevision->getId() );
 			}
-			$newPageContent = null;
+		}
+		# Commit the transaction now, in case something goes wrong later
+		# The most important thing is that files don't get lost, especially archives
+		# NOTE: once we have support for nested transactions, the commit may be moved
+		#       to after $wikiPage->doEdit has been called.
+		$dbw->commit( __METHOD__ );
+		# Update memcache after the commit
+		$this->invalidateCache();
+		if ( $exists ) {
+			# Invalidate the cache for the description page
+			$descTitle->invalidateCache();
+			$descTitle->purgeSquid();
 		} else {
-			// Make the description page and RC log entry post-commit
-			$newPageContent = ContentHandler::makeContent( $pageText, $descTitle );
-		}
-
-		# Defer purges, page creation, and link updates in case they error out.
-		# The most important thing is that files and the DB registry stay synced.
-		$dbw->endAtomic( __METHOD__ );
-		# Do some cache purges after final commit so that:
-		# a) Changes are more likely to be seen post-purge
-		# b) They won't cause rollback of the log publish/update above
-		$that = $this;
-		$dbw->onTransactionIdle( function () use (
-			$that, $reupload, $wikiPage, $newPageContent, $comment, $user, $logEntry, $logId, $descId, $tags
-		) {
-			# Update memcache after the commit
-			$that->invalidateCache();
-			$updateLogPage = false;
-			if ( $newPageContent ) {
-				# New file page; create the description page.
-				# There's already a log entry, so don't make a second RC entry
-				# CDN and file cache for the description page are purged by doEditContent.
-				$status = $wikiPage->doEditContent(
-					$newPageContent,
-					$comment,
-					EDIT_NEW | EDIT_SUPPRESS_RC,
-					false,
-					$user
-				);
-				if ( isset( $status->value['revision'] ) ) {
-					// Associate new page revision id
-					$logEntry->setAssociatedRevId( $status->value['revision']->getId() );
-				}
-				// This relies on the resetArticleID() call in WikiPage::insertOn(),
-				// which is triggered on $descTitle by doEditContent() above.
-				if ( isset( $status->value['revision'] ) ) {
-					/** @var $rev Revision */
-					$rev = $status->value['revision'];
-					$updateLogPage = $rev->getPage();
-				}
-			} else {
-				# Existing file page: invalidate description page cache
-				$wikiPage->getTitle()->invalidateCache();
-				$wikiPage->getTitle()->purgeSquid();
-				# Allow the new file version to be patrolled from the page footer
-				Article::purgePatrolFooterCache( $descId );
-			}
-			# Update associated rev id. This should be done by $logEntry->insert() earlier,
-			# but setAssociatedRevId() wasn't called at that point yet...
-			$logParams = $logEntry->getParameters();
-			$logParams['associated_rev_id'] = $logEntry->getAssociatedRevId();
-			$update = [ 'log_params' => LogEntryBase::makeParamBlob( $logParams ) ];
-			if ( $updateLogPage ) {
-				# Also log page, in case where we just created it above
-				$update['log_page'] = $updateLogPage;
-			}
-			$that->getRepo()->getMasterDB()->update(
-				'logging',
-				$update,
-				[ 'log_id' => $logId ],
-				__METHOD__
+			# New file; create the description page.
+			# There's already a log entry, so don't make a second RC entry
+			# Squid and file cache for the description page are purged by doEditContent.
+			$content = ContentHandler::makeContent( $pageText, $descTitle );
+			$status = $wikiPage->doEditContent(
+				$content,
+				$comment,
+				EDIT_NEW | EDIT_SUPPRESS_RC,
+				false,
+				$user
 			);
-			$that->getRepo()->getMasterDB()->insert(
-				'log_search',
-				[
-					'ls_field' => 'associated_rev_id',
-					'ls_value' => $logEntry->getAssociatedRevId(),
-					'ls_log_id' => $logId,
-				],
-				__METHOD__
-			);
-			# Add change tags, if any
-			if ( $tags ) {
-				$logEntry->setTags( $tags );
-			}
-			# Uploads can be patrolled
-			$logEntry->setIsPatrollable( true );
-			# Now that the log entry is up-to-date, make an RC entry.
+			$dbw->begin( __METHOD__ ); // XXX; doEdit() uses a transaction
+			// Now that the page exists, make an RC entry.
 			$logEntry->publish( $logId );
-			# Run hook for other updates (typically more cache purging)
-			Hooks::run( 'FileUpload', [ $that, $reupload, !$newPageContent ] );
-			if ( $reupload ) {
-				# Delete old thumbnails
-				$that->purgeThumbnails();
-				# Remove the old file from the CDN cache
-				DeferredUpdates::addUpdate(
-					new CdnCacheUpdate( [ $that->getUrl() ] ),
-					DeferredUpdates::PRESEND
+			if ( isset( $status->value['revision'] ) ) {
+				$dbw->update( 'logging',
+					array( 'log_page' => $status->value['revision']->getPage() ),
+					array( 'log_id' => $logId ),
+					__METHOD__
 				);
-			} else {
-				# Update backlink pages pointing to this title if created
-				LinksUpdate::queueRecursiveJobsForTable( $that->getTitle(), 'imagelinks' );
 			}
-		} );
-		if ( !$reupload ) {
-			# This is a new file, so update the image count
-			DeferredUpdates::addUpdate( SiteStatsUpdate::factory( [ 'images' => 1 ] ) );
+			$dbw->commit( __METHOD__ ); // commit before anything bad can happen
 		}
+		if ( $reupload ) {
+			# Delete old thumbnails
+			$this->purgeThumbnails();
+			# Remove the old file from the squid cache
+			SquidUpdate::purge( array( $this->getURL() ) );
+		}
+		# Hooks, hooks, the magic of hooks...
+		Hooks::run( 'FileUpload', array( $this, $reupload, $descTitle->exists() ) );
 		# Invalidate cache for all pages using this file
-		DeferredUpdates::addUpdate( new HTMLCacheUpdate( $this->getTitle(), 'imagelinks' ) );
-
+		$update = new HTMLCacheUpdate( $this->getTitle(), 'imagelinks' );
+		$update->doUpdate();
+		if ( !$reupload ) {
+			LinksUpdate::queueRecursiveJobsForTable( $this->getTitle(), 'imagelinks' );
+		}
 		return true;
+	}
+
+	/**
+	 * Purge the file object/metadata cache
+	 */
+	function invalidateCache() {
+		$key = $this->getCacheKey();
+		if ( !$key ) {
+			return;
+		}
+		ObjectCache::getMainWANInstance()->delete( $key );
 	}
 
 	/**

@@ -10,8 +10,7 @@
  * @ingroup FileRepo
  */
 
-if (!class_exists('S3')) require_once 'S3.php';
-if (!class_exists('S3')) require_once '$IP/extensions/LocalS3Repo/S3.php';
+use S3;
 
 class FSs3Repo extends FileRepo {
 	var $AWS_ACCESS_KEY, $AWS_SECRET_KEY, $AWS_S3_BUCKET, $AWS_S3_PUBLIC, $AWS_S3_SSL;
@@ -674,7 +673,7 @@ class FSs3Repo extends FileRepo {
 	function enumFilesInFS( $callback ) {
 		//Grab an S3 instance
 		$s3 = self::getS3Instance();
-		
+
 		$s3contents = $s3->getBucket($this->AWS_S3_BUCKET, $this->directory."/");
 		wfDebug(__METHOD__." :".print_r($s3contents,true)."\n");
 		foreach( $s3contents as $path ) {

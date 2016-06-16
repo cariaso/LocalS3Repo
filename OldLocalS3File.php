@@ -1,4 +1,7 @@
 <?php
+
+use MWException;
+
 /*
   	Modified to work with 1.21 and CloudFront.
         Owen Borseth - owen at borseth dot us

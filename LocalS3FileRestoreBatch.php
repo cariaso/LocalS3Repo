@@ -1,4 +1,8 @@
 <?php
+
+use FileRepo;
+use RepoGroup;
+
 /**
  * Helper class for file undeletion
  * @ingroup FileRepo

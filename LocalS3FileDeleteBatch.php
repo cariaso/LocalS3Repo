@@ -4,6 +4,9 @@
  * Helper class for file deletion
  * @ingroup FileRepo
  */
+
+use SquidUpdate;
+
 class LocalS3FileDeleteBatch {
 	var $file, $reason, $srcRels = array(), $archiveUrls = array(), $deletionBatch, $suppress;
 	var $status;
