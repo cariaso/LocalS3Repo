@@ -46,16 +46,15 @@ require_once("$IP/extensions/LocalS3Repo/LocalS3Repo.php");
  ***
  * @ingroup FileRepo
  */
- 
-if (!class_exists('S3')) require_once 'S3.php';
-require_once("$IP/extensions/LocalS3Repo/FSs3Repo.php");
-require_once("$IP/extensions/LocalS3Repo/LocalS3File.php");
-require_once("$IP/extensions/LocalS3Repo/OldLocalS3File.php");
 
- // Instantiate the class
-$s3 = new S3();
+// if (!class_exists('S3')) require_once 'S3.php';
+// if (!class_exists('S3')) require_once '$IP/extensions/LocalS3Repo/S3.php';
+// require_once("$IP/extensions/LocalS3Repo/FSs3Repo.php");
+// require_once("$IP/extensions/LocalS3Repo/LocalS3File.php");
+// require_once("$IP/extensions/LocalS3Repo/OldLocalS3File.php");
 
 class LocalS3Repo extends FSs3Repo {
+
 	var $fileFactory = array( 'LocalS3File', 'newFromTitle' );
 	var $oldFileFactory = array( 'OldLocalS3File', 'newFromTitle' );
 	var $fileFromRowFactory = array( 'LocalS3File', 'newFromRow' );
@@ -82,7 +81,7 @@ class LocalS3Repo extends FSs3Repo {
 	 * remote operation.
 	 * @return FileRepoStatus
 	 */
-	function cleanupDeletedBatch( $storageKeys ) {
+	function cleanupDeletedBatch( array $storageKeys ) {
 		$root = $this->getZonePath( 'deleted' );
 		$dbw = $this->getMasterDB();
 		$status = $this->newGood();
@@ -118,13 +117,13 @@ class LocalS3Repo extends FSs3Repo {
 		}
 		return $status;
 	}
-	
+
 	/**
 	 * Checks if there is a redirect named as $title
 	 *
 	 * @param $title Title of file
 	 */
-	function checkRedirect( $title ) {
+	function checkRedirect( Title $title ) {
 		global $wgMemc;
 
 		if( is_string( $title ) ) {
@@ -195,7 +194,7 @@ class LocalS3Repo extends FSs3Repo {
 	}
 
 	/**
-	 * Get an array or iterator of file objects for files that have a given 
+	 * Get an array or iterator of file objects for files that have a given
 	 * SHA-1 content hash.
 	 */
 	function findBySha1( $hash ) {
@@ -205,7 +204,7 @@ class LocalS3Repo extends FSs3Repo {
 			LocalS3File::selectFields(),
 			array( 'img_sha1' => $hash )
 		);
-		
+
 		$result = array();
 		while ( $row = $res->fetchObject() )
 			$result[] = $this->newFileFromRow( $row );
@@ -229,7 +228,7 @@ class LocalS3Repo extends FSs3Repo {
 
 	/**
 	 * Get a key on the primary cache for this repository.
-	 * Returns false if the repository's cache is not accessible at this site. 
+	 * Returns false if the repository's cache is not accessible at this site.
 	 * The parameters are the parts of the key, as for wfMemcKey().
 	 */
 	function getSharedCacheKey( /*...*/ ) {
@@ -242,7 +241,7 @@ class LocalS3Repo extends FSs3Repo {
 	 *
 	 * @param $title Title of page
 	 */
-	function invalidateImageRedirect( $title ) {
+	function invalidateImageRedirect( Title $title ) {
 		global $wgMemc;
 		$memcKey = $this->getSharedCacheKey( 'image_redirect', md5( $title->getDBkey() ) );
 		if ( $memcKey ) {
@@ -250,4 +249,3 @@ class LocalS3Repo extends FSs3Repo {
 		}
 	}
 }
-

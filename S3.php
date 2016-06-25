@@ -36,6 +36,10 @@
 * Amazon S3 is a trademark of Amazon.com, Inc. or its affiliates.
 */
 
+use S3Request;
+use DOMDocument;
+use stdClass;
+
 /**
 * Amazon S3 PHP class
 *
@@ -199,6 +203,7 @@ class S3
 	* @param string $endpoint Amazon URI
 	* @return void
 	*/
+
 	public function __construct($accessKey = null, $secretKey = null, $useSSL = false, $endpoint = 's3.amazonaws.com')
 	{
 		if ($accessKey !== null && $secretKey !== null) {
@@ -208,8 +213,18 @@ class S3
                 }
 		self::$useSSL = $useSSL;
 		self::$endpoint = $endpoint;
+		// could be modified to user sawyer's new setEndpoint() method
 	}
 
+	// This version from Sawyer
+	/**
+	public function __construct($accessKey = null, $secretKey = null, $useSSL = true) {
+		if ($accessKey !== null && $secretKey !== null){
+			self::setAuth($accessKey, $secretKey);
+			self::$useSSL = $useSSL;
+		}
+	}
+	*/
 
 	/**
 	* Set the service endpoint

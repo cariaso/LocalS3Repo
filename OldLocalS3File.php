@@ -1,4 +1,7 @@
 <?php
+
+use MWException;
+
 /*
   	Modified to work with 1.21 and CloudFront.
         Owen Borseth - owen at borseth dot us
@@ -32,7 +35,7 @@ class OldLocalS3File extends LocalS3File {
 		$file->loadFromRow( $row, 'oi_' );
 		return $file;
 	}
-	
+
 	static function newFromKey( $sha1, $repo, $timestamp = false ) {
 		# Polymorphic function name to distinguish foreign and local fetches
 		$fname = get_class( $this ) . '::' . __FUNCTION__;
@@ -48,7 +51,7 @@ class OldLocalS3File extends LocalS3File {
 			return false;
 		}
 	}
-	
+
 	/**
 	 * Fields in the oldimage table
 	 */
@@ -201,7 +204,7 @@ class OldLocalS3File extends LocalS3File {
 	 * @param $field Integer
 	 * @return bool
 	 */
-	function userCan( $field ) {
+	function userCan( $field, User $user = NULL ) {
 		if( isset($this->deleted) && ($this->deleted & $field) == $field ) {
 			global $wgUser;
 			$permission = ( $this->deleted & File::DELETED_RESTRICTED ) == File::DELETED_RESTRICTED
