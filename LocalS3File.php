@@ -1,7 +1,7 @@
 <?php
 /*
-        Modified to work with 1.21 and CloudFront.
-  	Owen Borseth - owen at borseth dot us
+		Modified to work with 1.21 and CloudFront.
+		Owen Borseth - owen at borseth dot us
 */
 
 /**
@@ -70,10 +70,12 @@ class LocalS3File extends File {
 	* @param boolean $https Use HTTPS ($hostBucket should be false for SSL verification)
 	* @return string
 	*/
+
 	public static function getAuthenticatedURL($bucket, $uri, $lifetime, $hostBucket = false, $https = false) {
 		global $s3;
 		return $s3->getAuthenticatedURL($bucket, $uri, $lifetime, $hostBucket, $https);
 	}
+
 	/** Get the URL of the archive directory, or a particular file if $suffix is specified */
 	function getArchiveUrl( $suffix = false ) {
 		wfDebug( __METHOD__ . " suffix: $suffix, url:".print_r($this->url, true)."\n" );
@@ -85,8 +87,8 @@ class LocalS3File extends File {
 			if(! $this->repo->AWS_S3_PUBLIC) {
 				$path = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->getZonePath('public') . $path, 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
 			} else {
-			  $path = $this->repo->getVirtualUrl($path);
-			  wfDebug( __METHOD__ . " return: $path \n".print_r($path,true)."\n" );
+				$path = $this->repo->getVirtualUrl($path);
+				wfDebug( __METHOD__ . " return: $path \n".print_r($path,true)."\n" );
 				#$path = $this->repo->url . $path;
 #				$path = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->getZonePath('public') . $path, 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
 			}
