@@ -23,8 +23,7 @@ class ImageMigration extends Maintenance
 		$this->AWS_S3_PUBLIC = false;
 		$this->AWS_S3_SSL = true;
 
-		$s3 = new S3($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY);
-		$s3->useSSL = $this->AWS_S3_SSL;
+		$s3 = new S3($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY, $this->AWS_S3_SSL);
 
 		// In my situation the images were in two different S3 buckets already. It will search these locations to try and find it.
 		// Your images are probably local already, so you may need to modify the code further down to work with local directories.
@@ -54,7 +53,7 @@ class ImageMigration extends Maintenance
 				continue;
 
 			echo('img_name:'.$row->img_name."\n");
-			//echo('img_path:'.$row->img_path."\n");
+			echo('img_path:'.$row->img_path."\n");
 			echo('page_title:'.$row->page_title."\n");
 			$file = wfFindFile($row->img_name, array());
 			if($file)
