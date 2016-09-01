@@ -46,7 +46,7 @@ require_once("$IP/extensions/LocalS3Repo/LocalS3Repo.php");
  ***
  * @ingroup FileRepo
  */
- 
+
 if (!class_exists('S3')) require_once 'S3.php';
 require_once("$IP/extensions/LocalS3Repo/FSs3Repo.php");
 require_once("$IP/extensions/LocalS3Repo/LocalS3File.php");
@@ -119,7 +119,7 @@ class LocalS3Repo extends FSs3Repo {
 		}
 		return $status;
 	}
-	
+
 	/**
 	 * Checks if there is a redirect named as $title
 	 *
@@ -196,7 +196,7 @@ class LocalS3Repo extends FSs3Repo {
 	}
 
 	/**
-	 * Get an array or iterator of file objects for files that have a given 
+	 * Get an array or iterator of file objects for files that have a given
 	 * SHA-1 content hash.
 	 */
 	function findBySha1( $hash ) {
@@ -206,7 +206,7 @@ class LocalS3Repo extends FSs3Repo {
 			LocalS3File::selectFields(),
 			array( 'img_sha1' => $hash )
 		);
-		
+
 		$result = array();
 		while ( $row = $res->fetchObject() )
 			$result[] = $this->newFileFromRow( $row );
@@ -230,7 +230,7 @@ class LocalS3Repo extends FSs3Repo {
 
 	/**
 	 * Get a key on the primary cache for this repository.
-	 * Returns false if the repository's cache is not accessible at this site. 
+	 * Returns false if the repository's cache is not accessible at this site.
 	 * The parameters are the parts of the key, as for wfMemcKey().
 	 */
 	function getSharedCacheKey( /*...*/ ) {
@@ -251,4 +251,3 @@ class LocalS3Repo extends FSs3Repo {
 		}
 	}
 }
-

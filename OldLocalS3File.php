@@ -32,7 +32,7 @@ class OldLocalS3File extends LocalS3File {
 		$file->loadFromRow( $row, 'oi_' );
 		return $file;
 	}
-	
+
 	static function newFromKey( $sha1, $repo, $timestamp = false ) {
 		# Polymorphic function name to distinguish foreign and local fetches
 		$fname = get_class( $this ) . '::' . __FUNCTION__;
@@ -48,7 +48,7 @@ class OldLocalS3File extends LocalS3File {
 			return false;
 		}
 	}
-	
+
 	/**
 	 * Fields in the oldimage table
 	 */
