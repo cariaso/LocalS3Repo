@@ -4,6 +4,8 @@
         Owen Borseth - owen at borseth dot us
 */
 
+use MWException;
+
 /**
  * Class to represent a file in the oldimage table
  *
