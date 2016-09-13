@@ -10,8 +10,6 @@
  * @ingroup FileRepo
  */
 
-use S3;
-
 class FSs3Repo extends FileRepo {
 	var $AWS_ACCESS_KEY, $AWS_SECRET_KEY, $AWS_S3_BUCKET, $AWS_S3_PUBLIC, $AWS_S3_SSL;
 

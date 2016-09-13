@@ -1,7 +1,5 @@
 <?php
 
-use SquidUpdate;
-
 /**
  * Helper class for file deletion
  * @ingroup FileRepo

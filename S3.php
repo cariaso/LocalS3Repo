@@ -39,10 +39,6 @@
 * Amazon S3 is a trademark of Amazon.com, Inc. or its affiliates.
 */
 
-use S3Request;
-use DOMDocument;
-use stdClass;
-
 /**
 * Amazon S3 PHP class
 *

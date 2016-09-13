@@ -29,17 +29,6 @@ define( 'MW_FILE_VERSION', 8 );
  * @ingroup FileRepo
  */
 
-use ManualLogEntry;
-use WikiFilePage;
-
-use S3;
-use LocalS3FileMoveBatch;
-use LocalS3FileRestoreBatch;
-use LocalS3FileDeleteBatch;
-use LinksUpdate;
-use SquidUpdate;
-use HTMLCacheUpdate;
-
 class LocalS3File extends File {
 	//TODO: Handle this properly.
 	//This is a total hack, but PDFs seem to be causing issues here because they have large metadata values.
