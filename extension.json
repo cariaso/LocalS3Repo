@@ -19,15 +19,5 @@
 	"AvailableRights": [
 		"locals3repo"
 	],
-	"AutoloadClasses": {
-		"S3": "S3.php",
-		"FSs3Repo": "FSs3Repo.php",
-		"LocalS3FileDeleteBatch": "LocalS3FileDeleteBatch.php",
-		"LocalS3FileMoveBatch": "LocalS3FileMoveBatch.php",
-		"LocalS3FileRestoreBatch": "LocalS3FileRestoreBatch.php",
-		"OldLocalS3File": "OldLocalS3File.php",
-		"LocalS3File": "LocalS3File.php",
-		"LocalS3Repo": "LocalS3Repo.php"
-	},
 	"manifest_version": 1
 }
