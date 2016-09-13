@@ -76,8 +76,8 @@ class LocalS3File extends File {
 	* @return string
 	*/
 	public static function getAuthenticatedURL($credentials, $bucket, $uri, $lifetime, $hostBucket = false) {
-		$s3 = new S3($credentials['AWS_ACCESS_KEY'], $credentials['AWS_SECRET_KEY'], $credentials['$AWS_S3_SSL']);
-		return $s3->getAuthenticatedURL($bucket, $uri, $lifetime, $hostBucket, $credentials['$AWS_S3_SSL']);
+		$s3 = new S3($credentials['AWS_ACCESS_KEY'], $credentials['AWS_SECRET_KEY'], $credentials['AWS_S3_SSL']);
+		return $s3->getAuthenticatedURL($bucket, $uri, $lifetime, $hostBucket, $credentials['AWS_S3_SSL']);
 	}
 
 	/**
@@ -695,7 +695,7 @@ class LocalS3File extends File {
 	 */
 	function getS3Instance(){
 		$credentials = self::getCredentials();
-		return new S3($credentials['AWS_ACCESS_KEY'], $credentials['AWS_SECRET_KEY'], $credentials['$AWS_S3_SSL']);
+		return new S3($credentials['AWS_ACCESS_KEY'], $credentials['AWS_SECRET_KEY'], $credentials['AWS_S3_SSL']);
 	}
 
 	/**
