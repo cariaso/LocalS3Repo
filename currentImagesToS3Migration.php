@@ -23,10 +23,9 @@ class ImageMigration extends Maintenance {
 
 		$s3 = new S3($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY, $this->AWS_S3_SSL);
 
-		// In my situation the images were in two different S3 buckets already. It will search these locations to try and find it.
-		// Your images are probably local already, so you may need to modify the code further down to work with local directories.
-		// NOTE: fill this in
-		$s3Buckets = array("");
+		// One scenario is that the images are in N different S3 buckets already. It will search these locations to try and find it.
+		// If your files are local, this section is ignored based on changes further down (approx line 63 onwards).
+		// $s3Buckets = array("");
 
 		$dbw = wfGetDB( DB_MASTER );
 
@@ -56,22 +55,28 @@ class ImageMigration extends Maintenance {
 				if($file) {
 					$path = $file->getFullUrl();
 					$path = str_replace('http://s3.amazonaws.com/'.$this->AWS_S3_BUCKET.'/', '', $path);
-					// TODO: required?
-					#$path = preg_replace('/\?AWSAccessKeyId=.*$/', '', $path);
 
 					echo("path:$path\n");
 
-					// If you have images that are already stored locally, you will need to modify this section. Instead of an S3::copyObject you 
-					// may need to use the S3::putObject method to upload your local copy.
+					//
+					// For files stored in other S3 buckets - use the below logic.
+					/*
 					foreach($s3Buckets as $s3Bucket) {
-						//if($s3->copyObject($s3Bucket, $row->img_path, $this->AWS_S3_BUCKET, $path, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE)))
-						// TODO: review logic
-						if($s3->putObject($row->img_name, $this->AWS_S3_BUCKET, $path, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE))) {
+						if($s3->copyObject($s3Bucket, $row->img_path, $this->AWS_S3_BUCKET, $path, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE)))
 							echo('SUCCESS:'.$row->img_name."\n");
 							break;
 						} else {
 							echo('ERROR1:'.$row->img_name."\n");
 						}
+					}
+					*/
+					//
+					// For files stored locally in images/ - use the below logic.
+					if($s3->putObject($row->img_name, $this->AWS_S3_BUCKET, $path, ($this->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE))) {
+						echo('SUCCESS:'.$row->img_name."\n");
+						break;
+					} else {
+						echo('ERROR1:'.$row->img_name."\n");
 					}
 				} else {
 					echo('ERROR2:'.$row->img_name."\n");
