@@ -93,7 +93,7 @@ class LocalS3File extends File {
 			if(! $this->repo->AWS_S3_PUBLIC) {
 				$path = self::getAuthenticatedURL(self::getCredentials(), $this->repo->AWS_S3_BUCKET, $this->repo->getZonePath('public') . $path, 60*60*24*7 /*week*/, false);
 			} else {
-				$path = $this->repo->getZoneUrl('public') . $path; 
+				$path = $this->repo->getZoneUrl('public') . $path;
 			}
 		}
 		wfDebug( __METHOD__ . " return: $path \n".print_r($this,true)."\n" );
@@ -348,7 +348,7 @@ class LocalS3File extends File {
 	/**
 	 * Load file metadata from cache or DB, unless already loaded
 	 */
-	function load( $flags = 0 ) {
+	function load($flags = 0) {
 		if ( !$this->dataLoaded ) {
 			if ( !$this->loadFromCache() ) {
 				$this->loadFromDB();
@@ -606,6 +606,7 @@ class LocalS3File extends File {
 	 *                      keys are width, height and page.
 	 * @param integer $flags A bitfield, may contain self::RENDER_NOW to force rendering
 	 * @return MediaTransformOutput
+	 *	Key to s3 Uploads
 	 */
 	function transform( $params, $flags = 0 ) {
 		global $wgUseSquid, $wgIgnoreImageErrors;
@@ -628,13 +629,14 @@ class LocalS3File extends File {
 				}
 			}
 
+			//I believe the issue is here due to public conversion works but without a key private does not.
 			$normalisedParams = $params;
 			$this->handler->normaliseParams( $this, $normalisedParams );
 			$thumbName = $this->thumbName( $normalisedParams );
 			$thumbPath = $this->getThumbPath( $thumbName );
 			$thumbUrl = $this->getThumbUrl( $thumbPath );
 			wfDebug( __METHOD__.": thumbName: $thumbName, thumbPath: $thumbPath\n  thumbUrl: $thumbUrl\n" );
-
+			
 			if ( $this->repo->canTransformVia404() && !($flags & self::RENDER_NOW ) ) {
 				$thumb = $this->handler->getTransform( $this, $thumbPath, $thumbUrl, $params );
 				break;
@@ -643,23 +645,65 @@ class LocalS3File extends File {
 			wfDebug( __METHOD__.": Doing stat for $thumbPath\n  ($thumbUrl)\n" );
 			$this->migrateThumbFile( $thumbName );
 
-			$s3 = self::getS3Instance();
+			//$thumbPath - is the full path of the image on s3
 			$info = $s3->getObjectInfo($this->repo->AWS_S3_BUCKET, $thumbPath);
+
+			//thumbTempPath
+			//This makes the temp file and then attempts to put contents in to the temp file
+			$this->thumbTempPath = tempnam(wfTempDir(), "s3thumb-");
+			//copy($this->getUrl(), $this->thumbTempPath);
+
+			//Get Full Path of Original Uploaded Image
+			$fullPath = str_replace("thumb/", "", $thumbPath);
+			$fullPath = explode("/",$fullPath);
+			unset( $fullPath[ count($fullPath) - 1]);
+			$fullPath = implode("/",$fullPath);
+
+			//echo $fullPath."<br>";
+			//echo $thumbPath."<br>";
+			//echo $this->thumbTempPath."<br><br><br>";
+
+			//This is where it request the file and put it in the thumbTempPath
+			$s3->getObject(
+						$this->repo->AWS_S3_BUCKET,
+						$fullPath, 
+						$this->thumbTempPath
+					  );
+
+			if(!file_exists($this->thumbTempPath)){
+				$tmpImg = file_get_contents($this->getUrl());
+			
+				if(!empty($tmpImg) && !is_object($tmpImg)){
+					file_put_contents($this->thumbTempPath, $tmpImg);
+				}
+			}
+
+
+			//copy($this->thumbTempPath, $thumbPath);
+			/*
+			//if private then it needs to try again with key
+			if(!preg_match("/AWSAccessKeyId/",$thumbUrl) && $this->repo->AWS_S3_PUBLIC ){
+				//public static function getAuthenticatedURL($bucket, $uri, $lifetime, $hostBucket = false, $https = false) {
+				$thumbUrl = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $thumbPath, 60*60*24*7, false,  $this->repo->AWS_S3_SSL);
+			}
+			*/
+
 			wfDebug(__METHOD__." thumbPath: $thumbPath\ninfo:".print_r($info,true)."\n");
+
+			//Gets the transformed file, not sure where it transformed it though.
 			if ( $info /*file_exists( $thumbPath )*/ ) {
 				$thumb = $this->handler->getTransform( $this, $thumbPath, $thumbUrl, $params );
 				break;
 			}
 
-			$this->thumbTempPath = tempnam(wfTempDir(), "s3thumb-");
-			copy($this->getUrl(), $this->thumbTempPath);
-
+			//This makes the thumb from the temp file
 			$thumb = $this->handler->doTransform( $this, $this->thumbTempPath, $thumbUrl, $params );
 
 			wfDebug( __METHOD__. " thumb: ".print_r($thumb->getUrl(),true)."\n" );
 			$s3path = $thumbPath;
 
-			$info = $s3->putObjectFile($this->thumbTempPath, $this->repo->AWS_S3_BUCKET, $s3path,
+			//This puts the file to the temp location
+			$info = $s3->putObjectFile($this->thumbTempPath, $this->repo->AWS_S3_BUCKET, $s3path, 
 							($this->repo->AWS_S3_PUBLIC ? S3::ACL_PUBLIC_READ : S3::ACL_PRIVATE));
 
 
@@ -688,19 +732,135 @@ class LocalS3File extends File {
 		return is_object( $thumb ) ? $thumb : false;
 	}
 
-	/**
-	 * Total hack for retrieving an S3 instance. This should really be rewritten.
-	 * @param
-	 * @return S3
-	 */
-	function getS3Instance(){
-		$credentials = self::getCredentials();
-		return new S3($credentials['AWS_ACCESS_KEY'], $credentials['AWS_SECRET_KEY'], $credentials['AWS_S3_SSL']);
-	}
 
-	/**
-	 * Get the URL of the thumbnail directory, or a particular file if $suffix is specified.
-	 * $suffix is a path relative to the S3 bucket, and includes the upload directory
+	public function generateAndSaveThumb( $tmpFile, $transformParams, $flags ) {
+		global $IP, $wgUploadDirectory, $wgAWS_S3_BUCKET, $wgAWS_BucketDir, $aws_s3_client, $wgUploadBaseUrl;
+		global $wgIgnoreImageErrors;
+
+		$stats = RequestContext::getMain()->getStats();
+
+		$handler = $this->getHandler();
+
+		$normalisedParams = $transformParams;
+		$handler->normaliseParams( $this, $normalisedParams );
+
+		$thumbName = $this->thumbName( $normalisedParams );
+		$thumbUrl = $this->getThumbUrl( $thumbName );
+		$thumbPath = $this->getThumbPath( $thumbName ); // final thumb path
+
+		//S3 determine if thumb is on S3 if not use original
+		//$this->file_existsS3();
+
+		$this->thumbTempPath = tempnam(wfTempDir(), "s3thumb-");
+
+		$s3->getObject(
+					$this->repo->AWS_S3_BUCKET,
+					$thumbPath, 
+					$this->thumbTempPath
+				  );
+
+		//$tmpThumbPath = $tmpFile->getPath();
+
+		/**/
+		//This only can be activated once the sync is complete and the delete files have been deleted.
+		//This section searches for the thumbpath and if it does not exists
+		if(!file_exists($tmpThumbPath) || filesize($tmpThumbPath) == 0){
+			
+			//Get Path
+			//$s3ThumbPath = str_replace("https://".$wgAWS_S3_BUCKET.".s3.amazonaws.com/","",$thumbUrl);
+			//$temps3 = explode("?",$s3ThumbPath);
+			//$s3ThumbPath = $temps3[0];
+			$s3ThumbPath = str_replace("images/", "", $wgUploadDirectory)."/thumb".str_replace("mwstore://local-backend/local-thumb", "", $thumbPath);
+			$s3FullPath = explode("/", str_replace("images/", "", $wgUploadDirectory)."".str_replace("mwstore://local-backend/local-thumb", "", $thumbPath));
+			unset( $s3FullPath[ count($s3FullPath)-1 ] );
+			$s3FullPath = implode("/", $s3FullPath);
+			
+			if($this->file_existsS3($s3ThumbPath)){
+
+				//$tmpThumbPath = $this->getS3Url($s3ThumbPath); //$thumbUrl;
+				//$thumbUrl = $this->getS3Url($s3ThumbPath); 
+
+			} else if($this->file_existsS3($s3FullPath)){
+				//$tmpThumbPath = $this->getS3Url($s3FullPath); //$thumbUrl;
+				//$thumbUrl = $this->getS3Url($s3FullPath); 
+
+			}
+
+		}
+		/**/
+
+
+		if ( $handler->supportsBucketing() ) {
+			$this->generateBucketsIfNeeded( $normalisedParams, $flags );
+		}
+
+		$starttime = microtime( true );
+
+		// Actually render the thumbnail...
+		//Add the s3 capability of getting the s3 url to generate new thumbnail if it didnt exists
+		/*
+		$thumbUrl = "/opt/bitnami/apache2/htdocs/images/noaccess.png";
+		$thumb = $handler->doTransform( $image, $dstPath, 		$dstUrl, $params, $flags = 0);
+		*/
+		//echo $thumbUrl."<br>";
+		
+		$thumb = $handler->doTransform( $this , $tmpThumbPath, $thumbUrl, $transformParams );
+
+		/*ß
+		if(preg_match("/120px/",$thumbUrl)){
+			echo "<br><pre>";
+			print_r($thumb);
+			echo $tmpThumbPath."<br>";
+			echo $thumbUrl."<br>";
+			echo "</pre>";
+		}
+		*/
+
+		$tmpFile->bind( $thumb ); // keep alive with $thumb
+
+		$statTiming = microtime( true ) - $starttime;
+		$stats->timing( 'media.thumbnail.generate.transform', 1000 * $statTiming );
+		
+		/*
+		Kelvin
+		*/
+
+		if ( !$thumb ) { // bad params?
+			$thumb = false;
+
+		} elseif ( $thumb->isError() ) { // transform error
+			/** @var $thumb MediaTransformError */
+			$this->lastError = $thumb->toText();
+			// Ignore errors if requested
+			if ( $wgIgnoreImageErrors && !( $flags & self::RENDER_NOW ) ) {
+				$thumb = $handler->getTransform( $this, $tmpThumbPath, $thumbUrl, $transformParams );
+			}
+		} elseif ( $this->repo && $thumb->hasFile() && !$thumb->fileIsSource() ) {
+			// Copy the thumbnail from the file system into storage...
+
+			$starttime = microtime( true );
+
+			$disposition = $this->getThumbDisposition( $thumbName );
+			$status = $this->repo->quickImport( $tmpThumbPath, $thumbPath, $disposition );
+			if ( $status->isOK() ) {
+				$thumb->setStoragePath( $thumbPath );
+			} else {
+				$thumb = $this->transformErrorOutput( $thumbPath, $thumbUrl, $transformParams, $flags );
+			}
+
+			$statTiming = microtime( true ) - $starttime;
+			$stats->timing( 'media.thumbnail.generate.store', 1000 * $statTiming );
+
+			// Give extensions a chance to do something with this thumbnail...
+			Hooks::run( 'FileTransformed', [ $this, $thumb, $tmpThumbPath, $thumbPath ] );
+		}
+
+
+		return $thumb;
+	}
+	
+	/** Get the URL of the thumbnail directory, or a particular file if $suffix is specified.
+	 *  $suffix is a path relative to the S3 bucket, and includes the upload directory
 	 */
 	function getThumbUrl( $suffix = false ) {
 		if($this->repo->cloudFrontUrl)
@@ -708,9 +868,16 @@ class LocalS3File extends File {
 		else
 			$path = $this->repo->getUrlBase() . "/$suffix";
 
-		if(! $this->repo->AWS_S3_PUBLIC) {
-			$path = self::getAuthenticatedURL(self::getCredentials(), $this->repo->AWS_S3_BUCKET, $suffix, 60*60*24*7 /*week*/, false);
+		if(!$this->repo->AWS_S3_PUBLIC){
+			$this->url = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, 
+				$suffix, 60*60*24*7, false, 
+				$this->repo->AWS_S3_SSL);
 		}
+
+		$path = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, 
+				$suffix, 60*60*24*7, false, 
+				$this->repo->AWS_S3_SSL);
+
 		return $path;
 	}
 
@@ -732,11 +899,17 @@ class LocalS3File extends File {
 		$s3 = self::getS3Instance();
 		if ( !isset( $this->tempPath ) ) {
 			$this->tempPath = tempnam(wfTempDir(), "s3file-");
-			$info = $s3->getObject($this->repo->AWS_S3_BUCKET, $this->repo->directory . '/' . $this->getUrlRel(), $this->tempPath);
-			if(!$info) {
-				$this->tempPath = false;
-			}
+			
+			//This is not getting private files - kelvin
+			$info = $s3->getObject(
+									$this->repo->AWS_S3_BUCKET,
+									$this->repo->directory . '/'  . $this->getUrlRel(), 
+									$this->tempPath
+								  );
+
+			if(!$info) $this->tempPath = false;
 		}
+
 		return $this->tempPath;
 	}
 
@@ -829,7 +1002,7 @@ class LocalS3File extends File {
 	 *
 	 * @note This used to purge old thumbnails by default as well, but doesn't anymore.
 	 */
-	function purgeCache( $options = array() ) {
+	function purgeCache($options = []) {
 		// Refresh metadata cache
 		$this->purgeMetadataCache();
 
@@ -1070,12 +1243,8 @@ class LocalS3File extends File {
 	 * $oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = NULL
 	 * @deprecated use upload()
 	 */
-	function recordUpload( $oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = NULL ) {
-		if ( !$user ) {
-			global $wgUser;
-			$user = $wgUser;
-		}
-
+	function recordUpload($oldver, $desc, $license = '', $copyStatus = '', $source = '', $watch = false, $timestamp = false, User $user = NULL)
+	{
 		$pageText = SpecialUpload::getInitialPageText( $desc, $license, $copyStatus, $source );
 		if ( !$this->recordUpload2( $oldver, $desc, $pageText, false, $timestamp, $user ) ) {
 			return false;
@@ -1340,7 +1509,7 @@ class LocalS3File extends File {
 	 * @return FileRepoStatus object. On success, the value member contains the
 	 *     archive name, or an empty string if it was a new file.
 	 */
-	function publish( $srcPath, $flags = 0, array $options = array() ) {
+	function publish($srcPath, $flags = 0, array $options = []) {
 		$this->lock();
 		$dstRel = $this->getRel();
 		$archiveName = gmdate( 'YmdHis' ) . '!'. $this->getName();
@@ -1410,20 +1579,28 @@ class LocalS3File extends File {
 	 * @param $suppress
 	 * @return FileRepoStatus object.
 	 */
-	function delete( $reason, $suppress = false, $user = NULL ) {
-		$this->lock();
-		$batch = new LocalS3FileDeleteBatch( $this, $reason, $suppress );
+	function delete($reason, $suppress = false, $user = null) {
+		//$dbw = $this->repo->getMasterDB();
+		//$batch = new LocalS3FileDeleteBatch( $this, $reason, $suppress );		
+
+		//$this->lock();
+		$batch = new LocalS3FileDeleteBatch( $this, $reason, $suppress );		
 		$batch->addCurrent();
 
 		# Get old version relative paths
 		$dbw = $this->repo->getMasterDB();
+
+		/*
 		$result = $dbw->select( 'oldimage',
 			array( 'oi_archive_name' ),
 			array( 'oi_name' => $this->getName() ) );
 		while ( $row = $dbw->fetchObject( $result ) ) {
 			$batch->addOld( $row->oi_archive_name );
 		}
+		*/
+
 		$status = $batch->execute();
+		
 
 		if ( $status->ok ) {
 			// Update site_stats
@@ -1510,7 +1687,7 @@ class LocalS3File extends File {
 	 * This is not used by ImagePage for local files, since (among other things)
 	 * it skips the parser cache.
 	 */
-	function getDescriptionText( $lang = false ) {
+	function getDescriptionText($lang = false) {
 		global $wgParser;
 		$revision = Revision::newFromTitle( $this->title );
 		if ( !$revision ) return false;
@@ -1520,7 +1697,7 @@ class LocalS3File extends File {
 		return $pout->getText();
 	}
 
-	function getDescription( $audience = self::FOR_PUBLIC, User $user = NULL ) {
+	function getDescription($audience = self::FOR_PUBLIC, User $user = NULL) {
 		$this->load();
 		return $this->description;
 	}
@@ -1588,9 +1765,685 @@ class LocalS3File extends File {
 	 * Return the complete URL of the file
 	 */
 	public function getUrl() {
-		if ( !isset( $this->url ) ) {
-			if($this->repo->cloudFrontUrl) {
-				$this->url = $this->repo->cloudFrontUrl . $this->repo->directory . "/" . $this->getUrlRel();
+		global $s3;
+
+		if ( !isset( $this->url ) ) 
+		{
+			if($this->repo->cloudFrontUrl)
+				$this->url  = $this->repo->cloudFrontUrl.$this->repo->directory."/".$this->getUrlRel();
+			else
+				$this->url = $this->repo->getZoneUrl( 'public' ) . '/' . $this->getUrlRel();
+
+			if(!$this->repo->AWS_S3_PUBLIC){
+				$this->url = self::getAuthenticatedURL($this->repo->AWS_S3_BUCKET, $this->repo->directory . '/'  . $this->getUrlRel(), 60*60*24*7 /*week*/, false, $this->repo->AWS_S3_SSL);
+			}
+		}
+
+/* kelvin
+		$d =
+		array(
+		    'Bucket' => $this->repo->AWS_S3_BUCKET,
+		    'Key'    => $key
+		);
+
+		$this->tempPath = tempnam(wfTempDir(), "s3file-");
+		$info = $s3->getObject(
+								$this->repo->AWS_S3_BUCKET,
+								$this->repo->directory . '/'  . $this->getUrlRel(), 
+								$this->tempPath
+							  );
+
+		echo $this->repo->directory . '/'  . $this->getUrlRel();
+		echo "<pre>";
+		print_r($info);
+		echo "</pre>";
+		exit;
+		*/
+
+		wfDebug( __METHOD__ . ": ".print_r($this->url, true)."\n" );
+		return $this->url;
+	}
+
+
+	/*
+	public function generateAndSaveThumb( $tmpFile, $transformParams, $flags ) {
+		global $IP, $wgUploadDirectory, $wgAWS_S3_BUCKET, $wgAWS_BucketDir, $aws_s3_client, $wgUploadBaseUrl;
+		global $wgIgnoreImageErrors;
+
+		$stats = RequestContext::getMain()->getStats();
+
+		$handler = $this->getHandler();
+
+		$normalisedParams = $transformParams;
+		$handler->normaliseParams( $this, $normalisedParams );
+
+		$thumbName = $this->thumbName( $normalisedParams );
+		$thumbUrl = $this->getThumbUrl( $thumbName );
+		$thumbPath = $this->getThumbPath( $thumbName ); // final thumb path
+
+		//S3 determine if thumb is on S3 if not use original
+		//$this->file_existsS3();
+		$tmpThumbPath = $tmpFile->getPath();
+
+		
+		//This only can be activated once the sync is complete and the delete files have been deleted.
+		//This section searches for the thumbpath and if it does not exists
+		if(!file_exists($tmpThumbPath) || filesize($tmpThumbPath) == 0){
+			
+			//Get Path
+			//$s3ThumbPath = str_replace("https://".$wgAWS_S3_BUCKET.".s3.amazonaws.com/","",$thumbUrl);
+			//$temps3 = explode("?",$s3ThumbPath);
+			//$s3ThumbPath = $temps3[0];
+			$s3ThumbPath = str_replace("images/", "", $wgUploadDirectory)."/thumb".str_replace("mwstore://local-backend/local-thumb", "", $thumbPath);
+			$s3FullPath = explode("/", str_replace("images/", "", $wgUploadDirectory)."".str_replace("mwstore://local-backend/local-thumb", "", $thumbPath));
+			unset( $s3FullPath[ count($s3FullPath)-1 ] );
+			$s3FullPath = implode("/", $s3FullPath);
+			
+			if($this->file_existsS3($s3ThumbPath)){
+
+				//$tmpThumbPath = $this->getS3Url($s3ThumbPath); //$thumbUrl;
+				//$thumbUrl = $this->getS3Url($s3ThumbPath); 
+
+			} else if($this->file_existsS3($s3FullPath)){
+				//$tmpThumbPath = $this->getS3Url($s3FullPath); //$thumbUrl;
+				//$thumbUrl = $this->getS3Url($s3FullPath); 
+
+			}
+
+		}
+		/
+
+
+		if ( $handler->supportsBucketing() ) {
+			$this->generateBucketsIfNeeded( $normalisedParams, $flags );
+		}
+
+		$starttime = microtime( true );
+
+		// Actually render the thumbnail...
+		//Add the s3 capability of getting the s3 url to generate new thumbnail if it didnt exists
+		
+		//$thumbUrl = "/opt/bitnami/apache2/htdocs/images/noaccess.png";
+		//$thumb = $handler->doTransform( $image, $dstPath, 		$dstUrl, $params, $flags = 0);
+		
+		//echo $thumbUrl."<br>";
+		
+
+		$thumb = $handler->doTransform( $this , $tmpThumbPath, $thumbUrl, $transformParams );
+
+		$tmpFile->bind( $thumb ); // keep alive with $thumb
+
+		$statTiming = microtime( true ) - $starttime;
+		$stats->timing( 'media.thumbnail.generate.transform', 1000 * $statTiming );
+		
+		
+		//Kelvin
+		
+
+		if ( !$thumb ) { // bad params?
+			$thumb = false;
+
+		} elseif ( $thumb->isError() ) { // transform error
+			// @var $thumb MediaTransformError 
+			$this->lastError = $thumb->toText();
+			// Ignore errors if requested
+			if ( $wgIgnoreImageErrors && !( $flags & self::RENDER_NOW ) ) {
+				$thumb = $handler->getTransform( $this, $tmpThumbPath, $thumbUrl, $transformParams );
+			}
+		} elseif ( $this->repo && $thumb->hasFile() && !$thumb->fileIsSource() ) {
+			// Copy the thumbnail from the file system into storage...
+
+			$starttime = microtime( true );
+
+			$disposition = $this->getThumbDisposition( $thumbName );
+			$status = $this->repo->quickImport( $tmpThumbPath, $thumbPath, $disposition );
+			if ( $status->isOK() ) {
+				$thumb->setStoragePath( $thumbPath );
+			} else {
+				$thumb = $this->transformErrorOutput( $thumbPath, $thumbUrl, $transformParams, $flags );
+			}
+
+			$statTiming = microtime( true ) - $starttime;
+			$stats->timing( 'media.thumbnail.generate.store', 1000 * $statTiming );
+
+			// Give extensions a chance to do something with this thumbnail...
+			Hooks::run( 'FileTransformed', [ $this, $thumb, $tmpThumbPath, $thumbPath ] );
+		}
+
+
+		return $thumb;
+	}
+	*/
+} // LocalS3File class
+
+#------------------------------------------------------------------------------
+
+/**
+ * Helper class for file deletion
+ * @ingroup FileRepo
+ */
+class LocalS3FileDeleteBatch {
+	var $file, $reason, $srcRels = array(), $archiveUrls = array(), $deletionBatch, $suppress;
+	var $status;
+
+	function __construct( File $file, $reason = '', $suppress = false ) {
+		$this->file = $file;
+		$this->reason = $reason;
+		$this->suppress = $suppress;
+		$this->status = $file->repo->newGood();
+	}
+
+	function addCurrent() {
+		$this->srcRels['.'] = $this->file->getRel();
+	}
+
+	function addOld( $oldName ) {
+		$this->srcRels[$oldName] = $this->file->getArchiveRel( $oldName );
+		$this->archiveUrls[] = $this->file->getArchiveUrl( $oldName );
+	}
+
+	function getOldRels() {
+		if ( !isset( $this->srcRels['.'] ) ) {
+			$oldRels =& $this->srcRels;
+			$deleteCurrent = false;
+		} else {
+			$oldRels = $this->srcRels;
+			unset( $oldRels['.'] );
+			$deleteCurrent = true;
+		}
+		return array( $oldRels, $deleteCurrent );
+	}
+
+	/*protected*/ function getHashes() {
+		$hashes = array();
+		list( $oldRels, $deleteCurrent ) = $this->getOldRels();
+		if ( $deleteCurrent ) {
+			$hashes['.'] = $this->file->getSha1();
+		}
+		if ( count( $oldRels ) ) {
+			$dbw = $this->file->repo->getMasterDB();
+			$res = $dbw->select( 'oldimage', array( 'oi_archive_name', 'oi_sha1' ),
+				'oi_archive_name IN(' . $dbw->makeList( array_keys( $oldRels ) ) . ')',
+				__METHOD__ );
+			while ( $row = $dbw->fetchObject( $res ) ) {
+				if ( rtrim( $row->oi_sha1, "\0" ) === '' ) {
+					// Get the hash from the file
+					$oldUrl = $this->file->getArchiveVirtualUrl( $row->oi_archive_name );
+					$props = $this->file->repo->getFileProps( $oldUrl );
+					if ( $props['fileExists'] ) {
+						// Upgrade the oldimage row
+						$dbw->update( 'oldimage',
+							array( 'oi_sha1' => $props['sha1'] ),
+							array( 'oi_name' => $this->file->getName(), 'oi_archive_name' => $row->oi_archive_name ),
+							__METHOD__ );
+						$hashes[$row->oi_archive_name] = $props['sha1'];
+					} else {
+						$hashes[$row->oi_archive_name] = false;
+					}
+				} else {
+					$hashes[$row->oi_archive_name] = $row->oi_sha1;
+				}
+			}
+		}
+		$missing = array_diff_key( $this->srcRels, $hashes );
+		foreach ( $missing as $name => $rel ) {
+			$this->status->error( 'filedelete-old-unregistered', $name );
+		}
+		foreach ( $hashes as $name => $hash ) {
+			if ( !$hash ) {
+				$this->status->error( 'filedelete-missing', $this->srcRels[$name] );
+				unset( $hashes[$name] );
+			}
+		}
+
+		return $hashes;
+	}
+
+	function doDBInserts() {
+		global $wgUser;
+		$dbw = $this->file->repo->getMasterDB();
+		$encTimestamp = $dbw->addQuotes( $dbw->timestamp() );
+		$encUserId = $dbw->addQuotes( $wgUser->getId() );
+		$encReason = $dbw->addQuotes( $this->reason );
+		$encGroup = $dbw->addQuotes( 'deleted' );
+		$ext = $this->file->getExtension();
+		$dotExt = $ext === '' ? '' : ".$ext";
+		$encExt = $dbw->addQuotes( $dotExt );
+		list( $oldRels, $deleteCurrent ) = $this->getOldRels();
+
+		// Bitfields to further suppress the content
+		if ( $this->suppress ) {
+			$bitfield = 0;
+			// This should be 15...
+			$bitfield |= Revision::DELETED_TEXT;
+			$bitfield |= Revision::DELETED_COMMENT;
+			$bitfield |= Revision::DELETED_USER;
+			$bitfield |= Revision::DELETED_RESTRICTED;
+		} else {
+			$bitfield = 'oi_deleted';
+		}
+
+		if ( $deleteCurrent ) {
+			$concat = $dbw->buildConcat( array( "img_sha1", $encExt ) );
+			$where = array( 'img_name' => $this->file->getName() );
+			$dbw->insertSelect( 'filearchive', 'image',
+				array(
+					'fa_storage_group' => $encGroup,
+					'fa_storage_key'   => "CASE WHEN img_sha1='' THEN '' ELSE $concat END",
+					'fa_deleted_user'      => $encUserId,
+					'fa_deleted_timestamp' => $encTimestamp,
+					'fa_deleted_reason'    => $encReason,
+					'fa_deleted'		   => $this->suppress ? $bitfield : 0,
+
+					'fa_name'         => 'img_name',
+					'fa_archive_name' => 'NULL',
+					'fa_size'         => 'img_size',
+					'fa_width'        => 'img_width',
+					'fa_height'       => 'img_height',
+					'fa_metadata'     => 'img_metadata',
+					'fa_bits'         => 'img_bits',
+					'fa_media_type'   => 'img_media_type',
+					'fa_major_mime'   => 'img_major_mime',
+					'fa_minor_mime'   => 'img_minor_mime',
+					'fa_description'  => 'img_description',
+					'fa_user'         => 'img_user',
+					'fa_user_text'    => 'img_user_text',
+					'fa_timestamp'    => 'img_timestamp'
+				), $where, __METHOD__ );
+		}
+
+		if ( count( $oldRels ) ) {
+			$concat = $dbw->buildConcat( array( "oi_sha1", $encExt ) );
+			$where = array(
+				'oi_name' => $this->file->getName(),
+				'oi_archive_name IN (' . $dbw->makeList( array_keys( $oldRels ) ) . ')' );
+			$dbw->insertSelect( 'filearchive', 'oldimage',
+				array(
+					'fa_storage_group' => $encGroup,
+					'fa_storage_key'   => "CASE WHEN oi_sha1='' THEN '' ELSE $concat END",
+					'fa_deleted_user'      => $encUserId,
+					'fa_deleted_timestamp' => $encTimestamp,
+					'fa_deleted_reason'    => $encReason,
+					'fa_deleted'		   => $this->suppress ? $bitfield : 'oi_deleted',
+
+					'fa_name'         => 'oi_name',
+					'fa_archive_name' => 'oi_archive_name',
+					'fa_size'         => 'oi_size',
+					'fa_width'        => 'oi_width',
+					'fa_height'       => 'oi_height',
+					'fa_metadata'     => 'oi_metadata',
+					'fa_bits'         => 'oi_bits',
+					'fa_media_type'   => 'oi_media_type',
+					'fa_major_mime'   => 'oi_major_mime',
+					'fa_minor_mime'   => 'oi_minor_mime',
+					'fa_description'  => 'oi_description',
+					'fa_user'         => 'oi_user',
+					'fa_user_text'    => 'oi_user_text',
+					'fa_timestamp'    => 'oi_timestamp',
+					'fa_deleted'      => $bitfield
+				), $where, __METHOD__ );
+		}
+	}
+
+	function doDBDeletes() {
+		$dbw = $this->file->repo->getMasterDB();
+		list( $oldRels, $deleteCurrent ) = $this->getOldRels();
+		if ( count( $oldRels ) ) {
+			$dbw->delete( 'oldimage',
+				array(
+					'oi_name' => $this->file->getName(),
+					'oi_archive_name' => array_keys( $oldRels )
+				), __METHOD__ );
+		}
+		if ( $deleteCurrent ) {
+			$dbw->delete( 'image', array( 'img_name' => $this->file->getName() ), __METHOD__ );
+		}
+	}
+
+	/**
+	 * Run the transaction
+	 */
+	function execute() {
+		global $status;
+
+		$status = new customStatus();
+		$dbw = $this->file->repo->getMasterDB();
+		$status->delete($dbw, $this->file->title->mDbkeyform);
+		$status->good = 1;
+		$status->ok = 1;
+
+		return $status;
+
+		global $wgUseSquid;
+		wfProfileIn( __METHOD__ );
+
+		$this->file->lock();
+		// Leave private files alone
+		$privateFiles = array();
+		list( $oldRels, $deleteCurrent ) = $this->getOldRels();
+		$dbw = $this->file->repo->getMasterDB();
+		if( !empty( $oldRels ) ) {
+			$res = $dbw->select( 'oldimage',
+				array( 'oi_archive_name' ),
+				array( 'oi_name' => $this->file->getName(),
+					'oi_archive_name IN (' . $dbw->makeList( array_keys($oldRels) ) . ')',
+					'oi_deleted & ' . File::DELETED_FILE => File::DELETED_FILE ),
+				__METHOD__ );
+			while( $row = $dbw->fetchObject( $res ) ) {
+				$privateFiles[$row->oi_archive_name] = 1;
+			}
+		}
+		// Prepare deletion batch
+		$hashes = $this->getHashes();
+		$this->deletionBatch = array();
+		$ext = $this->file->getExtension();
+		$dotExt = $ext === '' ? '' : ".$ext";
+		foreach ( $this->srcRels as $name => $srcRel ) {
+			// Skip files that have no hash (missing source).
+			// Keep private files where they are.
+			if ( isset( $hashes[$name] ) && !array_key_exists( $name, $privateFiles ) ) {
+				$hash = $hashes[$name];
+				$key = $hash . $dotExt;
+				$dstRel = $this->file->repo->getDeletedHashPath( $key ) . $key;
+				$this->deletionBatch[$name] = array( $srcRel, $dstRel );
+			}
+		}
+
+		// Lock the filearchive rows so that the files don't get deleted by a cleanup operation
+		// We acquire this lock by running the inserts now, before the file operations.
+		//
+		// This potentially has poor lock contention characteristics -- an alternative
+		// scheme would be to insert stub filearchive entries with no fa_name and commit
+		// them in a separate transaction, then run the file ops, then update the fa_name fields.
+		$this->doDBInserts();
+
+		// Removes non-existent file from the batch, so we don't get errors.
+		$this->deletionBatch = $this->removeNonexistentFiles( $this->deletionBatch );
+
+		// Execute the file deletion batch
+		$status = $this->file->repo->deleteBatch( $this->deletionBatch );
+		if ( !$status->isGood() ) {
+			$this->status->merge( $status );
+		}
+
+		if ( !$this->status->ok ) {
+			// Critical file deletion error
+			// Roll back inserts, release lock and abort
+			// TODO: delete the defunct filearchive rows if we are using a non-transactional DB
+			$this->file->unlockAndRollback();
+			wfProfileOut( __METHOD__ );
+			return $this->status;
+		}
+
+		// Purge squid
+		if ( $wgUseSquid ) {
+			$urls = array();
+			foreach ( $this->srcRels as $srcRel ) {
+				$urlRel = str_replace( '%2F', '/', rawurlencode( $srcRel ) );
+				$urls[] = $this->file->repo->getZoneUrl( 'public' ) . '/' . $urlRel;
+			}
+			SquidUpdate::purge( $urls );
+		}
+
+		// Delete image/oldimage rows
+		$this->doDBDeletes();
+
+		// Commit and return
+		$this->file->unlock();
+		wfProfileOut( __METHOD__ );
+		return $this->status;
+	}
+
+	/**
+	 * Removes non-existent files from a deletion batch.
+	 */
+	function removeNonexistentFiles( $batch ) {
+		$files = $newBatch = array();
+		foreach( $batch as $batchItem ) {
+			list( $src, $dest ) = $batchItem;
+			$files[$src] = $this->file->repo->getVirtualUrl( 'public' ) . '/' . rawurlencode( $src );
+		}
+		$result = $this->file->repo->fileExistsBatch( $files/*, FSs3Repo::FILES_ONLY*/ );
+		foreach( $batch as $batchItem )
+			if( $result[$batchItem[0]] )
+				$newBatch[] = $batchItem;
+		return $newBatch;
+	}
+}
+
+#------------------------------------------------------------------------------
+
+/**
+ * Helper class for file undeletion
+ * @ingroup FileRepo
+ */
+class LocalS3FileRestoreBatch {
+	var $file, $cleanupBatch, $ids, $all, $unsuppress = false;
+
+	function __construct( File $file, $unsuppress = false ) {
+		$this->file = $file;
+		$this->cleanupBatch = $this->ids = array();
+		$this->ids = array();
+		$this->unsuppress = $unsuppress;
+	}
+
+	/**
+	 * Add a file by ID
+	 */
+	function addId( $fa_id ) {
+		$this->ids[] = $fa_id;
+	}
+
+	/**
+	 * Add a whole lot of files by ID
+	 */
+	function addIds( $ids ) {
+		$this->ids = array_merge( $this->ids, $ids );
+	}
+
+	/**
+	 * Add all revisions of the file
+	 */
+	function addAll() {
+		$this->all = true;
+	}
+
+	/**
+	 * Run the transaction, except the cleanup batch.
+	 * The cleanup batch should be run in a separate transaction, because it locks different
+	 * rows and there's no need to keep the image row locked while it's acquiring those locks
+	 * The caller may have its own transaction open.
+	 * So we save the batch and let the caller call cleanup()
+	 */
+	function execute() {
+		global $wgLang;
+		if ( !$this->all && !$this->ids ) {
+			// Do nothing
+			return $this->file->repo->newGood();
+		}
+
+		$exists = $this->file->lock();
+		$dbw = $this->file->repo->getMasterDB();
+		$status = $this->file->repo->newGood();
+
+		// Fetch all or selected archived revisions for the file,
+		// sorted from the most recent to the oldest.
+		$conditions = array( 'fa_name' => $this->file->getName() );
+		if( !$this->all ) {
+			$conditions[] = 'fa_id IN (' . $dbw->makeList( $this->ids ) . ')';
+		}
+
+		$result = $dbw->select( 'filearchive', '*',
+			$conditions,
+			__METHOD__,
+			array( 'ORDER BY' => 'fa_timestamp DESC' )
+		);
+
+		$idsPresent = array();
+		$storeBatch = array();
+		$insertBatch = array();
+		$insertCurrent = false;
+		$deleteIds = array();
+		$first = true;
+		$archiveNames = array();
+		while( $row = $dbw->fetchObject( $result ) ) {
+			$idsPresent[] = $row->fa_id;
+
+			if ( $row->fa_name != $this->file->getName() ) {
+				$status->error( 'undelete-filename-mismatch', $wgLang->timeanddate( $row->fa_timestamp ) );
+				$status->failCount++;
+				continue;
+			}
+			if ( $row->fa_storage_key == '' ) {
+				// Revision was missing pre-deletion
+				$status->error( 'undelete-bad-store-key', $wgLang->timeanddate( $row->fa_timestamp ) );
+				$status->failCount++;
+				continue;
+			}
+
+			$deletedRel = $this->file->repo->getDeletedHashPath( $row->fa_storage_key ) . $row->fa_storage_key;
+			$deletedUrl = $this->file->repo->getVirtualUrl() . '/deleted/' . $deletedRel;
+
+			$sha1 = substr( $row->fa_storage_key, 0, strcspn( $row->fa_storage_key, '.' ) );
+			# Fix leading zero
+			if ( strlen( $sha1 ) == 32 && $sha1[0] == '0' ) {
+				$sha1 = substr( $sha1, 1 );
+			}
+
+			if( is_null( $row->fa_major_mime ) || $row->fa_major_mime == 'unknown'
+				|| is_null( $row->fa_minor_mime ) || $row->fa_minor_mime == 'unknown'
+				|| is_null( $row->fa_media_type ) || $row->fa_media_type == 'UNKNOWN'
+				|| is_null( $row->fa_metadata ) ) {
+				// Refresh our metadata
+				// Required for a new current revision; nice for older ones too. :)
+				$props = RepoGroup::singleton()->getFileProps( $deletedUrl );
+			} else {
+				$props = array(
+					'minor_mime' => $row->fa_minor_mime,
+					'major_mime' => $row->fa_major_mime,
+					'media_type' => $row->fa_media_type,
+					'metadata'   => $row->fa_metadata
+				);
+			}
+
+			if ( $first && !$exists ) {
+				// This revision will be published as the new current version
+				$destRel = $this->file->getRel();
+				$insertCurrent = array(
+					'img_name'        => $row->fa_name,
+					'img_size'        => $row->fa_size,
+					'img_width'       => $row->fa_width,
+					'img_height'      => $row->fa_height,
+					'img_metadata'    => $props['metadata'],
+					'img_bits'        => $row->fa_bits,
+					'img_media_type'  => $props['media_type'],
+					'img_major_mime'  => $props['major_mime'],
+					'img_minor_mime'  => $props['minor_mime'],
+					'img_description' => $row->fa_description,
+					'img_user'        => $row->fa_user,
+					'img_user_text'   => $row->fa_user_text,
+					'img_timestamp'   => $row->fa_timestamp,
+					'img_sha1'        => $sha1
+				);
+				// The live (current) version cannot be hidden!
+				if( !$this->unsuppress && $row->fa_deleted ) {
+					$storeBatch[] = array( $deletedUrl, 'public', $destRel );
+					$this->cleanupBatch[] = $row->fa_storage_key;
+				}
+			} else {
+				$archiveName = $row->fa_archive_name;
+				if( $archiveName == '' ) {
+					// This was originally a current version; we
+					// have to devise a new archive name for it.
+					// Format is <timestamp of archiving>!<name>
+					$timestamp = wfTimestamp( TS_UNIX, $row->fa_deleted_timestamp );
+					do {
+						$archiveName = wfTimestamp( TS_MW, $timestamp ) . '!' . $row->fa_name;
+						$timestamp++;
+					} while ( isset( $archiveNames[$archiveName] ) );
+				}
+				$archiveNames[$archiveName] = true;
+				$destRel = $this->file->getArchiveRel( $archiveName );
+				$insertBatch[] = array(
+					'oi_name'         => $row->fa_name,
+					'oi_archive_name' => $archiveName,
+					'oi_size'         => $row->fa_size,
+					'oi_width'        => $row->fa_width,
+					'oi_height'       => $row->fa_height,
+					'oi_bits'         => $row->fa_bits,
+					'oi_description'  => $row->fa_description,
+					'oi_user'         => $row->fa_user,
+					'oi_user_text'    => $row->fa_user_text,
+					'oi_timestamp'    => $row->fa_timestamp,
+					'oi_metadata'     => $props['metadata'],
+					'oi_media_type'   => $props['media_type'],
+					'oi_major_mime'   => $props['major_mime'],
+					'oi_minor_mime'   => $props['minor_mime'],
+					'oi_deleted'      => $this->unsuppress ? 0 : $row->fa_deleted,
+					'oi_sha1'         => $sha1 );
+			}
+
+			$deleteIds[] = $row->fa_id;
+			if( !$this->unsuppress && $row->fa_deleted & File::DELETED_FILE ) {
+				// private files can stay where they are
+				$status->successCount++;
+			} else {
+				$storeBatch[] = array( $deletedUrl, 'public', $destRel );
+				$this->cleanupBatch[] = $row->fa_storage_key;
+			}
+			$first = false;
+		}
+		unset( $result );
+
+		// Add a warning to the status object for missing IDs
+		$missingIds = array_diff( $this->ids, $idsPresent );
+		foreach ( $missingIds as $id ) {
+			$status->error( 'undelete-missing-filearchive', $id );
+		}
+
+		// Remove missing files from batch, so we don't get errors when undeleting them
+		$storeBatch = $this->removeNonexistentFiles( $storeBatch );
+
+		// Run the store batch
+		// Use the OVERWRITE_SAME flag to smooth over a common error
+		$storeStatus = $this->file->repo->storeBatch( $storeBatch, FileRepo::OVERWRITE_SAME );
+		$status->merge( $storeStatus );
+
+		if ( !$status->ok ) {
+			// Store batch returned a critical error -- this usually means nothing was stored
+			// Stop now and return an error
+			$this->file->unlock();
+			return $status;
+		}
+
+		// Run the DB updates
+		// Because we have locked the image row, key conflicts should be rare.
+		// If they do occur, we can roll back the transaction at this time with
+		// no data loss, but leaving unregistered files scattered throughout the
+		// public zone.
+		// This is not ideal, which is why it's important to lock the image row.
+		if ( $insertCurrent ) {
+			$dbw->insert( 'image', $insertCurrent, __METHOD__ );
+		}
+		if ( $insertBatch ) {
+			$dbw->insert( 'oldimage', $insertBatch, __METHOD__ );
+		}
+		if ( $deleteIds ) {
+			$dbw->delete( 'filearchive',
+				array( 'fa_id IN (' . $dbw->makeList( $deleteIds ) . ')' ),
+				__METHOD__ );
+		}
+
+		// If store batch is empty (all files are missing), deletion is to be considered successful
+		if( $status->successCount > 0 || !$storeBatch ) {
+			if( !$exists ) {
+				wfDebug( __METHOD__ . " restored {$status->successCount} items, creating a new current\n" );
+
+				// Update site_stats
+				$site_stats = $dbw->tableName( 'site_stats' );
+				$dbw->query( "UPDATE $site_stats SET ss_images=ss_images+1", __METHOD__ );
+
+				$this->file->purgeEverything();
 			} else {
 				$this->url = $this->repo->getZoneUrl( 'public' ) . '/' . $this->getUrlRel();
 			}
@@ -1602,4 +2455,23 @@ class LocalS3File extends File {
 		wfDebug( __METHOD__ . ": ".print_r($this->url, true)."\n" );
 		return $this->url;
 	}
+}
+
+
+
+class customStatus {
+
+	function isOK(){
+		return true;
+	}
+
+	function isGood(){
+		return true;
+	}
+
+	function delete(&$dbw, $title){
+
+		$dbw->query( "DELETE FROM image WHERE img_name = '$title'" );
+	}
+
 }

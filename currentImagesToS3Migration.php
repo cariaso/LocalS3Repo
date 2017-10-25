@@ -23,9 +23,9 @@ class ImageMigration extends Maintenance {
 
 		$s3 = new S3($this->AWS_ACCESS_KEY, $this->AWS_SECRET_KEY, $this->AWS_S3_SSL);
 
-		// One scenario is that the images are in N different S3 buckets already. It will search these locations to try and find it.
-		// If your files are local, this section is ignored based on changes further down (approx line 63 onwards).
-		// $s3Buckets = array("");
+		// In my situation the images were in two different S3 buckets already. It will search these locations to try and find it.
+		// Your images are probably local already, so you may need to modify the code further down to work with local directories.
+		//$s3Buckets = array(...);
 
 		$dbw = wfGetDB( DB_MASTER );
 

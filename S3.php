@@ -2232,15 +2232,9 @@ final class S3Request
 		$curl = curl_init();
 		curl_setopt($curl, CURLOPT_USERAGENT, 'S3/php');
 
-		if (S3::$useSSL)
-		{
-			// SSL Validation can now be optional for those with broken OpenSSL installations
-			curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, S3::$useSSLValidation ? 2 : 0);
-			curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, S3::$useSSLValidation ? 1 : 0);
-
-			if (S3::$sslKey !== null) curl_setopt($curl, CURLOPT_SSLKEY, S3::$sslKey);
-			if (S3::$sslCert !== null) curl_setopt($curl, CURLOPT_SSLCERT, S3::$sslCert);
-			if (S3::$sslCACert !== null) curl_setopt($curl, CURLOPT_CAINFO, S3::$sslCACert);
+		if (S3::$useSSL) {
+			curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+			curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
 		}
 
 		curl_setopt($curl, CURLOPT_URL, $url);
